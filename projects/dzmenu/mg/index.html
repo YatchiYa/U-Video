@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>DZ-MeNU TV spot</title>
+<link rel="stylesheet" href="node_modules/@fontsource-variable/bricolage-grotesque/index.css">
+<link rel="stylesheet" href="node_modules/@fontsource-variable/inter/index.css">
+<link rel="stylesheet" href="node_modules/@fontsource-variable/jetbrains-mono/index.css">
+<link rel="stylesheet" href="node_modules/@fontsource/cairo/arabic-600.css">
+<link rel="stylesheet" href="node_modules/@fontsource/cairo/arabic-800.css">
+<link rel="stylesheet" href="node_modules/@fontsource/caveat/latin-600.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+
+  <!-- Live-action overlays (transparent background, AI footage shows underneath) -->
+  <div class="scene overlay" id="s_paper">
+    <div class="shade-bottom"></div>
+    <div class="kinetic left-bottom">
+      <div class="line"><span>Menus abîmés.</span></div>
+      <div class="line"><span>Prix raturés.</span></div>
+      <div class="line"><span class="accent-text">Clients qui attendent.</span></div>
+    </div>
+  </div>
+
+  <div class="scene overlay" id="s_terrace">
+    <div class="shade-full"></div>
+    <div class="kinetic center">
+      <div class="line"><span>Il est temps de passer</span></div>
+      <div class="line"><span>au <em class="pill-hl">digital.</em></span></div>
+    </div>
+  </div>
+
+  <div class="scene dark" id="s_logo">
+    <div class="glow g1"></div><div class="glow g2"></div>
+    <div class="logo-lockup">
+      <div class="logo-icon big"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6c2bd9"/><stop offset="1" stop-color="#a163ff"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg1)"/><path class="spark" d="M32 14 34.9 23.6 44 27 34.9 30.4 32 40 29.1 30.4 20 27 29.1 23.6Z" fill="#fff"/><rect class="bar" x="20" y="45" width="24" height="3" rx="1.5" fill="#fff" opacity=".75"/></svg></div>
+      <div class="wordmark"><span>D</span><span>Z</span><span>-</span><span>M</span><span>e</span><span>N</span><span>U</span></div>
+    </div>
+    <div class="logo-tagline">Le menu QR trilingue pour cafés et restaurants</div>
+  </div>
+
+  <div class="scene overlay" id="s_scan">
+    <div class="shade-bottom"></div>
+    <div class="kinetic left-bottom">
+      <div class="line"><span>Un scan.</span></div>
+      <div class="line"><span class="accent-text">C'est tout.</span></div>
+    </div>
+    <div class="scan-badge"><i class="ico" style="--i:url(node_modules/lucide-static/icons/scan-line.svg)"></i>Scannez le QR</div>
+  </div>
+
+  <div class="scene light" id="s_phone">
+    <div class="blob b1"></div><div class="blob b2"></div>
+    <div class="phone-wrap" id="phone1">
+      <div class="phone"><div class="island"></div>
+        <div class="screen"><div class="statusbar"><b>9:41</b><span class="sb-icons"><i></i><i></i><i></i></span></div>
+          <img class="seq" data-seq="phone_fr" alt=""></div></div>
+    </div>
+    <div class="copy right">
+      <div class="eyebrow">Menu QR · sans application</div>
+      <h1 class="h1"><span class="w">Votre carte,</span> <span class="w grad">instantanément.</span></h1>
+      <div class="chips">
+        <div class="chip"><i class="ico ok" style="--i:url(node_modules/lucide-static/icons/check.svg)"></i>Aucune application à installer</div>
+        <div class="chip"><i class="ico ok" style="--i:url(node_modules/lucide-static/icons/check.svg)"></i>Photos, prix, catégories</div>
+        <div class="chip"><i class="ico ok" style="--i:url(node_modules/lucide-static/icons/check.svg)"></i>Toujours à jour</div>
+      </div>
+      <div class="real-note"><i class="ico" style="--i:url(node_modules/lucide-static/icons/map-pin.svg)"></i>Vrai menu en ligne : Baraka Glace, Oran</div>
+    </div>
+  </div>
+
+  <div class="scene light" id="s_tri">
+    <div class="blob b1"></div><div class="blob b3"></div>
+    <div class="tri-title"><span class="big">3 langues.</span> <span class="big grad">1 seul QR.</span></div>
+    <div class="tri-row">
+      <div class="tri-col" id="tri_fr"><div class="phone sm"><div class="island"></div><div class="screen"><div class="statusbar"><b>9:41</b><span class="sb-icons"><i></i><i></i><i></i></span></div><img class="seq" data-seq="tri_fr" alt=""></div></div><div class="lang-pill">Français</div></div>
+      <div class="tri-col" id="tri_ar"><div class="phone sm"><div class="island"></div><div class="screen"><div class="statusbar"><b>9:41</b><span class="sb-icons"><i></i><i></i><i></i></span></div><img class="seq" data-seq="tri_ar" alt=""></div></div><div class="lang-pill ar">العربية</div></div>
+      <div class="tri-col" id="tri_en"><div class="phone sm"><div class="island"></div><div class="screen"><div class="statusbar"><b>9:41</b><span class="sb-icons"><i></i><i></i><i></i></span></div><img class="seq" data-seq="tri_en" alt=""></div></div><div class="lang-pill">English</div></div>
+    </div>
+  </div>
+
+  <div class="scene overlay" id="s_owner">
+    <div class="shade-bottom"></div>
+    <div class="flash"></div>
+    <div class="kinetic left-bottom">
+      <div class="line"><span>Une photo de votre carte</span></div>
+      <div class="line"><span class="accent-text">suffit.</span></div>
+    </div>
+  </div>
+
+  <div class="scene light" id="s_digit">
+    <div class="blob b1"></div><div class="blob b2"></div>
+    <div class="digit-title"><span class="eyebrow">Lecture automatique · traduction</span><div class="h2">Lu. Traduit. <span class="grad">En ligne.</span></div></div>
+    <div class="paper">
+      <div class="paper-head">Café El Bahdja</div>
+      <div class="paper-sub">— Boissons —</div>
+      <div class="p-row"><span>Espresso</span><span>120</span></div>
+      <div class="p-row"><span>Thé à la menthe</span><span><s>80</s> 100</span></div>
+      <div class="p-row"><span>Jus d'orange pressé</span><span>250</span></div>
+      <div class="p-row"><span>Cappuccino</span><span><s>200</s> 180</span></div>
+      <div class="p-row"><span>Café au lait</span><span>140</span></div>
+      <div class="scanline"></div>
+      <div class="scan-glow"></div>
+    </div>
+    <div class="arrow-flow"><i class="ico" style="--i:url(node_modules/lucide-static/icons/sparkles.svg)"></i></div>
+    <div class="cards">
+      <div class="dcard" id="card_fr">
+        <div class="dc-top"><span class="dot"></span>Aperçu</div>
+        <div class="dc-cat">Boissons</div>
+        <div class="dc-row"><span>Espresso</span><i></i><b>120</b></div>
+        <div class="dc-row"><span>Thé à la menthe</span><i></i><b>100</b></div>
+        <div class="dc-row"><span>Jus d'orange pressé</span><i></i><b>250</b></div>
+        <div class="dc-row"><span>Cappuccino</span><i></i><b>180</b></div>
+        <div class="dc-row"><span>Café au lait</span><i></i><b>140</b></div>
+      </div>
+      <div class="dcard rtl" id="card_ar">
+        <div class="dc-top"><span class="dot"></span>معاينة</div>
+        <div class="dc-cat">المشروبات</div>
+        <div class="dc-row"><span>قهوة إسبريسو</span><i></i><b>120</b></div>
+        <div class="dc-row"><span>شاي بالنعناع</span><i></i><b>100</b></div>
+        <div class="dc-row"><span>عصير برتقال طازج</span><i></i><b>250</b></div>
+        <div class="dc-row"><span>كابتشينو</span><i></i><b>180</b></div>
+        <div class="dc-row"><span>قهوة بالحليب</span><i></i><b>140</b></div>
+      </div>
+    </div>
+    <div class="timer-badge"><i class="ico" style="--i:url(node_modules/lucide-static/icons/timer.svg)"></i><span class="tnum">0:00</span><span class="tlabel">en ligne en 2 min</span></div>
+  </div>
+
+  <div class="scene light" id="s_service">
+    <div class="blob b2"></div><div class="blob b3"></div>
+    <div class="service-copy">
+      <div class="eyebrow">Pas le temps ?</div>
+      <div class="h2">On s'occupe<br><span class="grad">de tout.</span></div>
+      <div class="big24"><span class="n">24</span><span class="h">h</span></div>
+      <div class="sub24">Compte, menu trilingue, photos et QR code prêts à imprimer.</div>
+    </div>
+    <div class="chat">
+      <div class="chat-head"><div class="avatar"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#6c2bd9"/><path d="M32 14 34.9 23.6 44 27 34.9 30.4 32 40 29.1 30.4 20 27 29.1 23.6Z" fill="#fff"/></svg></div><div><b>DZ-MeNU</b><span>en ligne</span></div></div>
+      <div class="chat-body">
+        <div class="bubble me photo"><img src="../broll/keyframes/a_paper.png" alt=""><span class="meta">10:02 ✓✓</span></div>
+        <div class="bubble me">Voici notre carte 🙂<span class="meta">10:02 ✓✓</span></div>
+        <div class="typing"><i></i><i></i><i></i></div>
+        <div class="bubble them">Bien reçu ! Votre menu en français, arabe et anglais sera en ligne sous 24 h ✅<span class="meta">10:03</span></div>
+      </div>
+      <div class="wa-btn"><svg viewBox="0 0 24 24"><path fill="#fff" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.5-.6-2.6-1.1-4.3-3.8-4.4-4-.1-.2-1-1.4-1-2.7s.7-1.9.9-2.2c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.6c-.1.2-.3.3-.1.6.2.3.8 1.3 1.6 2 1.1 1 2.1 1.3 2.4 1.4.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3Z"/></svg>Envoyer ma carte</div>
+      <div class="cursor"></div>
+    </div>
+  </div>
+
+  <div class="scene light" id="s_features">
+    <div class="blob b1"></div><div class="blob b2"></div>
+    <div class="feat-title"><span class="eyebrow">Votre espace commerçant</span><div class="h2">Tout se gère <span class="grad">au même endroit.</span></div></div>
+    <div class="laptop">
+      <div class="lid"><div class="cam"></div><div class="lscreen"><img class="seq" data-seq="laptop" alt=""></div></div>
+      <div class="base"><div class="notch"></div></div>
+    </div>
+    <div class="fcard f1"><i class="ico" style="--i:url(node_modules/lucide-static/icons/calendar-check.svg)"></i><div><b>Réservation de table</b><span>Horaires, capacité, confirmation</span></div></div>
+    <div class="fcard f2"><i class="ico" style="--i:url(node_modules/lucide-static/icons/chart-no-axes-column.svg)"></i><div><b>Statistiques</b><span>Visites, plats les plus vus</span></div></div>
+    <div class="fcard f3"><i class="ico" style="--i:url(node_modules/lucide-static/icons/badge-percent.svg)"></i><div><b>Promotions & formules</b><span>Prix barrés, menus du jour</span></div></div>
+    <div class="fcard f4"><i class="ico" style="--i:url(node_modules/lucide-static/icons/qr-code.svg)"></i><div><b>QR personnalisé</b><span>Chevalets et plaques</span></div></div>
+    <div class="fcard f5"><i class="ico" style="--i:url(node_modules/lucide-static/icons/store.svg)"></i><div><b>Annuaire public</b><span>Visible par ville et par type</span></div></div>
+    <div class="fcard f6"><i class="ico" style="--i:url(node_modules/lucide-static/icons/languages.svg)"></i><div><b>FR · AR · EN</b><span>Mise en page arabe de droite à gauche</span></div></div>
+  </div>
+
+  <div class="scene overlay" id="s_family">
+    <div class="shade-bottom"></div>
+    <div class="kinetic center-bottom">
+      <div class="line"><span>Plus simple pour vous.</span></div>
+      <div class="line"><span class="accent-text">Plus agréable pour vos clients.</span></div>
+    </div>
+  </div>
+
+  <div class="scene brand" id="s_end">
+    <div class="end-rays"></div>
+    <div class="end-grid">
+      <div class="end-left">
+        <div class="end-logo"><div class="logo-icon mid"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#fff"/><path d="M32 14 34.9 23.6 44 27 34.9 30.4 32 40 29.1 30.4 20 27 29.1 23.6Z" fill="#6c2bd9"/><rect x="20" y="45" width="24" height="3" rx="1.5" fill="#6c2bd9" opacity=".75"/></svg></div><span>DZ-MeNU</span></div>
+        <div class="end-head">Votre carte en ligne,<br>dès aujourd'hui.</div>
+        <div class="offer"><span>30 jours gratuits</span><i></i><span>Sans carte bancaire</span></div>
+        <div class="url">dz-menu.com</div>
+        <div class="contact"><svg viewBox="0 0 24 24"><path fill="#25d366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Z"/><path fill="#fff" d="M17.3 16.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.5-.6-2.6-1.1-4.3-3.8-4.4-4-.1-.2-1-1.4-1-2.7s.7-1.9.9-2.2c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.6c-.1.2-.3.3-.1.6.2.3.8 1.3 1.6 2 1.1 1 2.1 1.3 2.4 1.4.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3Z"/></svg>+213 541 32 58 52</div>
+      </div>
+      <div class="end-right">
+        <div class="phone end-phone"><div class="island"></div><div class="screen"><div class="statusbar"><b>9:41</b><span class="sb-icons"><i></i><i></i><i></i></span></div><img src="../capture/landing_fr_m_fold.png" alt=""></div></div>
+        <div class="qr-card"><img class="qr" src="qr.svg" alt=""><span>Scannez · Découvrez</span></div>
+      </div>
+    </div>
+    <div class="end-foot">Menu QR trilingue · Français · العربية · English · Cafés · Restaurants · Glaciers · Pizzerias</div>
+  </div>
+
+  <!-- Persistent brand elements -->
+  <div id="bug"><div class="logo-icon tiny"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#6c2bd9"/><path d="M32 14 34.9 23.6 44 27 34.9 30.4 32 40 29.1 30.4 20 27 29.1 23.6Z" fill="#fff"/></svg></div>DZ-MeNU</div>
+  <div id="wipe"><div class="band b1"></div><div class="band b2"></div></div>
+</div>
+
+<script src="node_modules/gsap/dist/gsap.min.js"></script>
+<script src="node_modules/gsap/dist/CustomEase.min.js"></script>
+<script src="timeline.js"></script>
+<script src="comp.js"></script>
+</body>
+</html>

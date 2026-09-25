@@ -1,0 +1,51 @@
+# --- secrets
+.env
+.env.*
+!.env.example
+
+# --- Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# --- Node (reinstalled by `ugc setup` / `npm install`)
+node_modules/
+
+# --- model weights and heavy environments (`ugc models download`, `ugc setup`)
+models/
+vendor/*
+# LTX-2 is a pinned git submodule (see .gitmodules)
+!vendor/LTX-2
+
+# --- generated work: renders, logs, caches
+outputs/
+logs/
+.ugc/
+**/out/
+*.mov
+*.mp4
+*.m4a
+*.wav
+*.mp3
+!src/ugc_studio/assets/*.wav
+
+# --- legacy DZ-MeNU TV spot: keep the scripts, not its captures/renders
+projects/dzmenu/broll/
+projects/dzmenu/capture/
+projects/dzmenu/music/
+projects/dzmenu/vo/
+projects/dzmenu/mg/screens/
+
+# --- personal test media (photos/videos you use locally)
+data_tests/
+
+# --- OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

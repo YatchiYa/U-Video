@@ -1,0 +1,15 @@
+{
+  "name": "ugc-studio-motion",
+  "private": true,
+  "description": "Assets for the UGC Studio motion-graphics engine (rendered offline in headless Chromium).",
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/cairo": "^5.3.0",
+    "@fontsource/caveat": "^5.3.0",
+    "@fontsource/montserrat": "^5.3.0",
+    "gsap": "^3.15.0",
+    "lucide-static": "^1.48.0"
+  }
+}

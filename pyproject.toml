@@ -1,0 +1,71 @@
+[project]
+name = "ugc-studio"
+version = "0.1.0"
+description = "Local long-form AI video studio (UGC, promo, anime, cinematic) on a single consumer GPU"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ltx-core[natten]",
+    "ltx-pipelines",
+    "diffusers>=0.37",
+    "typer>=0.15",
+    "rich>=13",
+    "pydantic>=2.8",
+    "pyyaml>=6",
+    "pillow>=10",
+    "numpy",
+    "imageio-ffmpeg>=0.6",
+    "huggingface_hub[hf_xet]>=0.34",
+    "psutil",
+    "playwright>=1.63.0",
+    "segno>=1.6.6",
+    "soundfile>=0.14.0",
+    "zxing-cpp>=3.1.1",
+    "opencv-python-headless>=5.0.0.93",
+    "pytest>=9.1.1",
+    "phonemizer>=3.4.0",
+    "espeakng-loader>=0.2.4",
+    "pillow-heif>=1.8.0",
+    "num2words>=0.5.14",
+]
+
+[project.scripts]
+ugc = "ugc_studio.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ugc_studio"]
+
+[tool.uv]
+# Mirrors vendor/LTX-2/pyproject.toml: torch 2.13+cu132 needs this cuDNN wheel on Linux.
+override-dependencies = ["nvidia-cudnn-cu13==9.24.0.43; sys_platform == 'linux'"]
+
+[tool.uv.sources]
+ltx-core = { path = "vendor/LTX-2/packages/ltx-core", editable = true }
+ltx-pipelines = { path = "vendor/LTX-2/packages/ltx-pipelines", editable = true }
+torch = [{ index = "torch" }]
+torchvision = [{ index = "torch" }]
+torchaudio = [{ index = "torch-test" }]
+natten = { index = "natten" }
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "torch"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[[tool.uv.index]]
+name = "torch-test"
+url = "https://download.pytorch.org/whl/test/cu132/"
+explicit = true
+
+[[tool.uv.index]]
+name = "natten"
+url = "https://whl.natten.org"
+format = "flat"
+explicit = true

@@ -1,0 +1,188 @@
+{
+ "fps": 25,
+ "total": 60.0,
+ "scenes": {
+  "s_paper": {
+   "start": 0.0,
+   "dur": 4.966,
+   "kind": "ai",
+   "clip": "a_paper2",
+   "vo": "vo01",
+   "lead": 0.35,
+   "beats": [
+    0.648,
+    2.237,
+    3.714
+   ]
+  },
+  "s_terrace": {
+   "start": 4.966,
+   "dur": 3.0,
+   "kind": "ai",
+   "clip": "b_terrace",
+   "vo": "vo02",
+   "lead": 0.25
+  },
+  "s_logo": {
+   "start": 7.966,
+   "dur": 5.407,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo03",
+   "lead": 0.35
+  },
+  "s_scan": {
+   "start": 13.374,
+   "dur": 3.0,
+   "kind": "ai",
+   "clip": "d_scan",
+   "vo": "vo04",
+   "lead": 0.25
+  },
+  "s_phone": {
+   "start": 16.374,
+   "dur": 5.0,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo05",
+   "lead": 0.35
+  },
+  "s_tri": {
+   "start": 21.374,
+   "dur": 4.435,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo06",
+   "lead": 0.35,
+   "beats": [
+    0.441,
+    1.431,
+    2.198
+   ]
+  },
+  "s_owner": {
+   "start": 25.808,
+   "dur": 3.2,
+   "kind": "ai",
+   "clip": "g_owner",
+   "vo": "vo07",
+   "lead": 0.25,
+   "flash": 1.716
+  },
+  "s_digit": {
+   "start": 29.008,
+   "dur": 6.657,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo08",
+   "lead": 0.35,
+   "twoMin": 6.455
+  },
+  "s_service": {
+   "start": 35.665,
+   "dur": 5.748,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo09",
+   "lead": 0.35
+  },
+  "s_features": {
+   "start": 41.413,
+   "dur": 5.782,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo10",
+   "lead": 0.35
+  },
+  "s_family": {
+   "start": 47.195,
+   "dur": 3.4,
+   "kind": "ai",
+   "clip": "j_family",
+   "vo": null,
+   "lead": 0.25
+  },
+  "s_end": {
+   "start": 50.595,
+   "dur": 9.405,
+   "kind": "mg",
+   "clip": null,
+   "vo": "vo11",
+   "lead": 0.35,
+   "offerBeat": 1.78
+  }
+ },
+ "seqs": {
+  "phone_fr": {
+   "start": 16.374,
+   "frames": 127,
+   "dir": "screens/phone_fr"
+  },
+  "tri_fr": {
+   "start": 21.374,
+   "frames": 113,
+   "dir": "screens/tri_fr"
+  },
+  "tri_ar": {
+   "start": 21.374,
+   "frames": 113,
+   "dir": "screens/tri_ar"
+  },
+  "tri_en": {
+   "start": 21.374,
+   "frames": 113,
+   "dir": "screens/tri_en"
+  },
+  "laptop": {
+   "start": 41.413,
+   "frames": 147,
+   "dir": "screens/laptop"
+  }
+ },
+ "vo": [
+  {
+   "id": "vo01",
+   "at": -0.025
+  },
+  {
+   "id": "vo02",
+   "at": 4.738
+  },
+  {
+   "id": "vo03",
+   "at": 7.738
+  },
+  {
+   "id": "vo04",
+   "at": 13.087
+  },
+  {
+   "id": "vo05",
+   "at": 16.251
+  },
+  {
+   "id": "vo06",
+   "at": 21.441
+  },
+  {
+   "id": "vo07",
+   "at": 25.543
+  },
+  {
+   "id": "vo08",
+   "at": 29.052
+  },
+  {
+   "id": "vo09",
+   "at": 35.693
+  },
+  {
+   "id": "vo10",
+   "at": 41.246
+  },
+  {
+   "id": "vo11",
+   "at": 50.581
+  }
+ ]
+}

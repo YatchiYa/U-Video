@@ -1,0 +1,11 @@
+name: lina
+description: Lina, a 26-year-old Algerian woman with long dark brown wavy hair, warm
+  brown eyes, a bright friendly smile, light olive skin, small gold hoop earrings,
+  wearing a cream blazer over a white t-shirt
+voice_style: a warm, confident, upbeat young female voice with a natural French accent
+  from Algiers
+language: French
+images:
+- ref_00.png
+- ref_01.png
+- ref_02.png

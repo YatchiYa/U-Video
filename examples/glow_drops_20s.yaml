@@ -1,0 +1,64 @@
+title: Glow Drops UGC 20s
+style: ugc
+aspect: '9:16'
+quality: standard
+seed: 1234
+look: >-
+  A 28-year-old woman with long curly brown hair, light freckles and warm brown eyes, wearing a cozy oatmeal-beige
+  knit sweater.
+voice: a warm, friendly, upbeat female voice with a natural American accent
+reference_prompt: >-
+  Head-and-shoulders identity portrait of a 28-year-old woman with long curly brown hair, light freckles and warm
+  brown eyes, wearing a cozy oatmeal-beige knit sweater, neutral relaxed expression, facing the camera, plain light
+  gray seamless studio background, soft even light, no props
+shots:
+  - id: s01
+    seconds: 5
+    continuity: cut
+    keyframe_prompt: >-
+      Selfie close-up of the woman in her bright white bathroom, holding a small amber glass dropper bottle with a black
+      cap and plain white label up next to her cheek, looking straight into the phone camera with an excited, slightly surprised expression, soft
+      morning window light from the side
+    prompt: >-
+      A handheld selfie close-up of a young woman with long curly brown hair and light freckles in a beige knit
+      sweater, standing in a bright white bathroom. She holds a small amber dropper bottle up next to her cheek,
+      raises her eyebrows and leans toward the phone camera with an excited expression, then gives the bottle a
+      small shake. The camera wobbles slightly as she talks. Soft morning daylight from a window on the left. Quiet
+      bathroom room tone.
+    dialogue: Okay, I have to tell you about this serum, because it's honestly insane.
+  - id: s02
+    seconds: 5
+    continuity: cut
+    keyframe_prompt: >-
+      Close-up of the woman holding the amber dropper above her open palm, a single clear drop of serum falling
+      from the glass dropper, her face softly visible behind, bright bathroom, morning light
+    prompt: >-
+      A close-up of the same young woman with curly brown hair in her bright bathroom. She squeezes the black rubber
+      cap of the amber dropper and lets two clear drops fall into her fingertips, then gently presses her fingertips
+      onto her cheek and smooths the serum across her skin in slow circles, glancing at the camera with a relaxed
+      smile. Handheld camera, soft morning window light. A soft drip sound and quiet bathroom ambience.
+    dialogue: Just two drops every morning, pressed right into my skin. That's literally it.
+  - id: s03
+    seconds: 5
+    continuity: cut
+    keyframe_prompt: >-
+      Medium close-up of the woman by the bathroom window in golden morning sunlight, touching her glowing cheek with
+      her fingertips and smiling proudly at the camera, healthy radiant dewy skin
+    prompt: >-
+      A medium close-up of the same young woman with curly brown hair and freckles standing by the bathroom window in
+      warm golden sunlight. She turns her face slowly from side to side so the light catches her dewy, radiant skin,
+      touches her cheek with her fingertips and breaks into a proud, genuine smile at the camera. Handheld selfie
+      camera with a gentle sway. Birds chirping faintly outside.
+    dialogue: Two weeks in, and look at this glow. My skin has never looked better.
+  - id: s04
+    seconds: 5
+    continuity: cut
+    keyframe_prompt: >-
+      Selfie of the woman smiling warmly and holding a small amber glass dropper bottle with a black cap and a blank white
+      label with no text toward the phone camera, bright white bathroom behind her, soft morning light
+    prompt: >-
+      A handheld selfie shot of the same young woman with curly brown hair in her beige sweater in the bright
+      bathroom. She holds the small amber dropper bottle toward the camera so it fills the lower part of the frame,
+      nods with a warm, confident smile, then points at the bottle with her other hand and laughs softly. Soft
+      morning daylight, quiet room tone.
+    dialogue: Seriously, if you've been on the fence, just try it. Link's below.
