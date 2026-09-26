@@ -14,7 +14,8 @@ from functools import lru_cache
 
 import numpy as np
 
-PHONEME_MODEL = "facebook/wav2vec2-xlsr-53-espeak-cv-ft"
+from ugc_studio.config import PHONEME_MODEL
+
 ESPEAK_LANG = {"french": "fr-fr", "english": "en-us", "spanish": "es", "german": "de", "italian": "it",
                "portuguese": "pt", "dutch": "nl", "turkish": "tr", "russian": "ru"}
 VOWELS = set("aeiouyɑɐɒæɛɜəɘɵɪʊʏøœɔɤʌɯɨʉ")

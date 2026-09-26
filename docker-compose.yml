@@ -1,0 +1,87 @@
+# UGC Studio: web app + API + GPU worker + Redis.
+#
+#   cp .env.example .env            # optional: cloud provider keys, model overrides
+#   docker compose up -d --build    # web on http://localhost:3000, API docs on http://localhost:8000/docs
+#   docker compose run --rm worker ugc setup              # once: voice + music environments (into a volume)
+#   docker compose run --rm worker ugc models download    # once, if ./models is empty (~90 GB)
+#
+# Host folders (override in .env): UGC_MODELS_HOST (weights), UGC_OUTPUTS_HOST (projects), HF_CACHE_HOST (e.g.
+# ~/.cache/huggingface to reuse downloads). Containers write files as UGC_UID:UGC_GID (default 1000:1000).
+# The worker needs an NVIDIA GPU with the NVIDIA Container Toolkit; everything else runs on CPU.
+
+x-app: &app
+  build: .
+  image: ugc-studio:latest
+  env_file:
+    - path: .env
+      required: false
+  environment: &env
+    REDIS_URL: redis://redis:6379/0
+    UGC_UID: ${UGC_UID:-1000}
+    UGC_GID: ${UGC_GID:-1000}
+    # container paths (win over the host-side values of the same names in .env)
+    UGC_MODELS: /data/models
+    UGC_OUTPUTS: /data/outputs
+    UGC_VENDOR: /data/vendor
+    HF_HOME: /data/hf
+  volumes:
+    - ${UGC_MODELS_HOST:-./models}:/data/models
+    - ${UGC_OUTPUTS_HOST:-./outputs}:/data/outputs
+    - ${HF_CACHE_HOST:-hf-cache}:/data/hf
+    - vendor:/data/vendor
+    - ./personas:/app/personas
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    command: ["ugc", "serve", "--host", "0.0.0.0", "--port", "8000", "--no-worker"]
+    environment:
+      <<: *env
+      UGC_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ports: ["${UGC_API_PORT:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      retries: 10
+
+  worker:
+    <<: *app
+    command: ["ugc", "worker"]
+    shm_size: "8gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  web:
+    build: ./web
+    image: ugc-studio-web:latest
+    environment:
+      UGC_API_URL: http://api:8000
+    ports: ["${UGC_WEB_PORT:-3000}:3000"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis:
+  vendor:
+  hf-cache:

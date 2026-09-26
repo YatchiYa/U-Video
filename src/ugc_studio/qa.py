@@ -7,7 +7,6 @@ import logging
 import re
 import subprocess
 from dataclasses import asdict, dataclass, field
-from difflib import SequenceMatcher
 from pathlib import Path
 
 import av

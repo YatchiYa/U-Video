@@ -111,6 +111,7 @@ class Scene(Strict):
 
     # ---- any kind ----
     voiceover: str | None = None  # promo narration for this scene (TTS)
+    voice_take: int = Field(0, ge=0)  # new narration take for this line (`ugc voice redo`)
     caption: list[str] = Field(default_factory=list)  # on-screen kinetic lines
     transition: Transition = Field(default_factory=Transition)  # transition INTO this scene
     ambience: float = Field(0.35, ge=0.0, le=1.0)  # level of the clip's own sound
@@ -190,6 +191,54 @@ class Brand(Strict):
     font_body: str = "Inter Variable"
 
 
+class VoicePlacement(Strict):
+    """A narration line pinned by hand on the timeline (instead of automatic placement at its scene)."""
+
+    at: float = Field(ge=0.0)  # when its first word starts, in seconds of the final video
+    gain_db: float = Field(0.0, ge=-30.0, le=12.0)
+
+
+class AudioClip(Strict):
+    """An extra sound on the timeline: a sound effect, a jingle, your own recording..."""
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
+    file: str
+    at: float = Field(0.0, ge=0.0)                     # where it starts in the final video (s)
+    trim_start: float = Field(0.0, ge=0.0)             # skip the beginning of the file (s)
+    duration: float | None = Field(None, gt=0.0)       # default: until the file (or the video) ends
+    gain_db: float = Field(0.0, ge=-40.0, le=12.0)
+    fade_in: float = Field(0.0, ge=0.0)
+    fade_out: float = Field(0.0, ge=0.0)
+    duck: bool = False                                 # speech: lowers the music under it like the narration
+
+
+class MusicEdit(Strict):
+    start: float = Field(0.0, ge=0.0)      # the music begins at this time of the video
+    offset: float = Field(0.0, ge=0.0)     # skip this much of the music file
+    gain_db: float = Field(0.0, ge=-30.0, le=12.0)
+    fade_in: float = Field(0.0, ge=0.0)
+    fade_out: float = Field(1.2, ge=0.0)
+
+
+class Edit(Strict):
+    """Manual timeline edits (`ugc timeline ...` or the editor). Everything not listed stays automatic."""
+
+    voice: dict[str, VoicePlacement] = Field(default_factory=dict)  # scene id -> pinned narration line
+    audio: list[AudioClip] = Field(default_factory=list)
+    music: MusicEdit = Field(default_factory=MusicEdit)
+
+
+class Providers(Strict):
+    """Where each capability runs (default: local open-source models). Overrides UGC_*_PROVIDER from .env."""
+
+    image: Literal["local", "openai", "gemini", "huggingface"] | None = None
+    video: Literal["local", "veo", "kling", "seedance"] | None = None
+    music: Literal["local", "elevenlabs"] | None = None
+    image_model: str | None = None
+    video_model: str | None = None
+    music_model: str | None = None
+
+
 class Voice(Strict):
     """Promo narration (TTS). UGC dialogue uses the video model's native voice instead."""
 
@@ -202,8 +251,10 @@ class Voice(Strict):
     reference_text: str | None = None
     tempo: float = Field(1.0, ge=0.8, le=1.2)
     # auto: Qwen3-TTS for its 10 languages, Chatterbox (MIT, 23 languages incl. Arabic) otherwise,
-    # Habibi (Apache-2.0 checkpoints) when an Arabic `dialect` is set.
-    engine: Literal["auto", "qwen", "chatterbox", "habibi"] = "auto"
+    # Habibi (Apache-2.0 checkpoints) when an Arabic `dialect` is set. Cloud: elevenlabs | openai | gemini.
+    engine: Literal["auto", "qwen", "chatterbox", "habibi", "elevenlabs", "openai", "gemini"] = "auto"
+    model: str | None = None     # cloud TTS model (e.g. eleven_multilingual_v2); default per provider
+    voice_id: str | None = None  # cloud voice (ElevenLabs voice id, OpenAI/Gemini voice name)
     dialect: Literal["MSA", "ALG", "EGY", "IRQ", "MAR"] | None = None  # Arabic dialect (Habibi)
     min_accuracy: float = Field(0.9, ge=0.5, le=1.0)  # word accuracy a narration line must reach (1.0 = every word)
     retries: int | None = Field(None, ge=1, le=20)  # attempts per line (default: 3 Qwen, 5 others)
@@ -248,6 +299,8 @@ class Project(Strict):
     characters: list[Character] = Field(default_factory=list)
     products: list[Product] = Field(default_factory=list)
     voice: Voice = Field(default_factory=Voice)
+    providers: Providers = Field(default_factory=Providers)
+    edit: Edit = Field(default_factory=Edit)
     music: Music = Field(default_factory=Music)
     captions: Captions = Field(default_factory=Captions)
     color_match: bool = True  # grade every shot to the first shot's look
@@ -321,12 +374,15 @@ class Project(Strict):
                 dv.image = res(dv.image)
             if s.screen_insert:
                 s.screen_insert.image = res(s.screen_insert.image)
+        for a in self.edit.audio:
+            a.file = res(a.file)
 
     def missing_files(self) -> list[str]:
         paths = [self.brand.logo, self.voice.reference_audio, self.music.file if self.music.mode == "file" else None]
         paths += [i for c in self.characters for i in c.images] + [i for p in self.products for i in p.images]
         paths += [p for s in self.scenes for p in (s.start_image, s.end_image, s.image)]
         paths += [dv.image for s in self.scenes for dv in s.devices]
+        paths += [a.file for a in self.edit.audio]
         return [p for p in paths if p and not Path(p).is_file()]
 
     def scene(self, sid: str) -> Scene:

@@ -21,7 +21,6 @@ from ugc_studio.state import State, ref
 from ugc_studio.styles import keyframe_prompt, preset
 
 log = logging.getLogger(__name__)
-FLUX_STEPS = 4
 
 
 @dataclass
@@ -40,9 +39,10 @@ def keyframe_size(res: Resolution, megapixels: float) -> tuple[int, int]:
 class _Gen:
     """Lazy FLUX loader + best-of-N selection. Nothing is loaded when every frame is cached."""
 
-    def __init__(self, candidates: int = 1):
+    def __init__(self, candidates: int = 1, project: Project | None = None):
         self.g = None
         self.candidates = candidates
+        self.project = project
         self.report: dict[str, list] = {}
 
     def __call__(self, prompt, w, h, seed, refs, out, screens: int | None = None, tries: int = 5, judge_refs=None):
@@ -54,9 +54,12 @@ class _Gen:
         from ugc_studio.composite import count_screens
 
         if self.g is None:
-            from ugc_studio.keyframes import KeyframeGenerator
+            from ugc_studio import providers
+            from ugc_studio.providers.local import LocalImage
 
-            self.g = KeyframeGenerator(steps=FLUX_STEPS)
+            self.g = providers.create(self.project, "image") if self.project is not None else LocalImage()
+            if refs and not self.g.supports_references:
+                log.warning("%s ignores reference images: identity is kept by the prompt only", self.g.name)
         out = Path(out)
         cands, scores = [], []
         n_wanted = self.candidates
@@ -130,7 +133,8 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
     workdir.mkdir(parents=True, exist_ok=True)
     mp = 2.0 if project.quality == "tv" else 1.0
     w, h = keyframe_size(res, mp)
-    gen = _DryGen() if dry_run else _Gen(project.image_candidates)
+    prov = provider_tag(project, "image")  # {} for local: switching provider regenerates, old caches stay valid
+    gen = _DryGen() if dry_run else _Gen(project.image_candidates, project)
     commit = state.commit
     if dry_run:
         state.commit = lambda *a, **k: None  # never record anything during a dry run
@@ -147,7 +151,7 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
                       "no props, no text")
             if project.style == "anime":
                 prompt = f"Anime character reference portrait of {c.description}, plain background, {preset(project).image}"
-            inputs = {"prompt": prompt, "seed": project.seed, "size": [w, h]}
+            inputs = {"prompt": prompt, "seed": project.seed, "size": [w, h], **prov}
             if not state.fresh(f"ref:{c.id}", inputs):
                 gen(prompt, w, h, project.seed, None, out)
                 state.commit(f"ref:{c.id}", inputs, [out])
@@ -160,7 +164,7 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
             out = workdir / f"ref_{p.id}.png"
             prompt = (f"Professional product packshot of {p.description}, centered on a plain white background, soft "
                       "studio light, sharp focus, no text")
-            inputs = {"prompt": prompt, "seed": project.seed + 1, "size": [w, h]}
+            inputs = {"prompt": prompt, "seed": project.seed + 1, "size": [w, h], **prov}
             if not state.fresh(f"ref:{p.id}", inputs):
                 gen(prompt, w, h, project.seed + 1, None, out)
                 state.commit(f"ref:{p.id}", inputs, [out])
@@ -186,7 +190,7 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
             else:
                 out = workdir / f"{s.id}_start.png"
                 prompt = keyframe_prompt(project, s, s.start_prompt, with_reference=bool(refs))
-                inputs = {"prompt": prompt, "refs": [ref(r) for r in refs], "seed": seed, "size": [w, h]}
+                inputs = {"prompt": prompt, "refs": [ref(r) for r in refs], "seed": seed, "size": [w, h], **prov}
                 if not state.fresh(f"kf:{s.id}:start", inputs):
                     gen(prompt, w, h, seed, refs, out, screens=_screens_needed(prompt))
                     state.commit(f"kf:{s.id}:start", inputs, [out])
@@ -201,7 +205,7 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
                 all_refs = (anchor + [r for r in refs + nrefs if r not in anchor])[:4]
                 out = workdir / f"seam_{s.id}_{nxt.id}.png"
                 prompt = keyframe_prompt(project, nxt, nxt.start_prompt or nxt.prompt, with_reference=True)
-                inputs = {"prompt": prompt, "refs": [ref(r) for r in all_refs], "seed": seed + 1, "size": [w, h]}
+                inputs = {"prompt": prompt, "refs": [ref(r) for r in all_refs], "seed": seed + 1, "size": [w, h], **prov}
                 if not state.fresh(f"kf:{s.id}:end", inputs):
                     gen(prompt, w, h, seed + 1, all_refs, out, screens=_screens_needed(prompt))
                     state.commit(f"kf:{s.id}:end", inputs, [out])
@@ -212,7 +216,7 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
                 all_refs = (anchor + refs)[:4]
                 out = workdir / f"{s.id}_end.png"
                 prompt = keyframe_prompt(project, s, s.end_prompt, with_reference=bool(all_refs))
-                inputs = {"prompt": prompt, "refs": [ref(r) for r in all_refs], "seed": seed + 2, "size": [w, h]}
+                inputs = {"prompt": prompt, "refs": [ref(r) for r in all_refs], "seed": seed + 2, "size": [w, h], **prov}
                 if not state.fresh(f"kf:{s.id}:end", inputs):
                     gen(prompt, w, h, seed + 2, all_refs, out, screens=_screens_needed(prompt), judge_refs=refs)
                     state.commit(f"kf:{s.id}:end", inputs, [out])
@@ -223,7 +227,7 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
                 out = workdir / f"{s.id}_image.png"
                 refs = _scene_refs(project, s, char_refs, prod_refs)
                 prompt = keyframe_prompt(project, s, s.start_prompt, with_reference=bool(refs))
-                inputs = {"prompt": prompt, "refs": [ref(r) for r in refs], "seed": project.seed, "size": [w, h]}
+                inputs = {"prompt": prompt, "refs": [ref(r) for r in refs], "seed": project.seed, "size": [w, h], **prov}
                 if not state.fresh(f"img:{s.id}", inputs):
                     gen(prompt, w, h, project.seed, refs, out)
                     state.commit(f"img:{s.id}", inputs, [out])
@@ -232,6 +236,14 @@ def build(project: Project, state: State, workdir: Path, res: Resolution, dry_ru
         gen.close()
         state.commit = commit
     return (frames, gen.would) if dry_run else frames
+
+
+def provider_tag(project: Project, kind: str) -> dict:
+    """Cache-key part naming a non-local provider/model (empty for local, so existing caches stay valid)."""
+    from ugc_studio import providers
+
+    c = providers.choice(project, kind)
+    return {} if c.provider in ("local", "auto") else {"provider": f"{c.provider}:{c.model or ''}"}
 
 
 def _screens_needed(prompt: str) -> int | None:

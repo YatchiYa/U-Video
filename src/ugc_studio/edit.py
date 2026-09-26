@@ -105,30 +105,77 @@ def render_base(project: Project, tl: Timeline, clips: dict[str, Path], out: Pat
 BROADCAST_VOICE = ("highpass=f=70,equalizer=f=250:t=q:w=1:g=-1.5,equalizer=f=3000:t=q:w=1.5:g=1.5,deesser=i=0.4")
 
 
-def render_voice_stem(tl: Timeline, voice: dict[str, VoiceLine], tempo: float, out: Path) -> Path | None:
-    cues = [(s.vo_at, s.vo_file) for s in tl.slots if s.vo_file]
-    if not cues:
-        return None
+@dataclass
+class Cue:
+    """One sound placed on the timeline."""
+
+    file: str
+    at: float                   # start in the final video (s); negative = the file's head is cut off
+    trim_start: float = 0.0     # skip into the file (s)
+    duration: float | None = None
+    gain_db: float = 0.0
+    fade_in: float = 0.0
+    fade_out: float = 0.0
+    tempo: float = 1.0
+
+
+def _stem(cues: list[Cue], total: float, out: Path, post: str = "") -> Path:
+    """Place every cue at its time (leading silence by concat: adelay is unreliable with apad/atrim), mix, pad/trim
+    to the video length."""
     inputs, parts = [], []
     fmt = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-    for k, (at, f) in enumerate(cues):
-        inputs += ["-i", f]
-        tempo_f = f"atempo={tempo:.4f}," if abs(tempo - 1) > 1e-3 else ""
-        line = f"[{k}:a]aresample=48000,{tempo_f}{fmt}"
-        if at > 1e-4:  # real leading silence (see render_base: adelay is unreliable with apad/atrim)
-            parts.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={at:.5f},{fmt}[lead{k}]")
+    for k, c in enumerate(cues):
+        inputs += ["-i", c.file]
+        skip = c.trim_start + max(0.0, -c.at) * c.tempo  # output seconds -> file seconds
+        chain = [f"[{k}:a]aresample=48000"]
+        if skip > 1e-4 or c.duration:
+            dur = f":duration={c.duration:.4f}" if c.duration else ""
+            chain.append(f"atrim=start={skip:.4f}{dur},asetpts=PTS-STARTPTS")
+        if abs(c.tempo - 1) > 1e-3:
+            chain.append(f"atempo={c.tempo:.4f}")
+        if c.fade_in > 0:
+            chain.append(f"afade=t=in:st=0:d={c.fade_in:.3f}")
+        if c.fade_out > 0 and c.duration:
+            chain.append(f"afade=t=out:st={max(0.0, c.duration - c.fade_out):.4f}:d={c.fade_out:.3f}")
+        elif c.fade_out > 0:
+            chain.append(f"areverse,afade=t=in:st=0:d={c.fade_out:.3f},areverse")
+        if abs(c.gain_db) > 1e-3:
+            chain.append(f"volume={c.gain_db:.2f}dB")
+        chain.append(fmt)
+        line = ",".join(chain)
+        if c.at > 1e-4:
+            parts.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={c.at:.5f},{fmt}[lead{k}]")
             parts.append(f"{line}[body{k}]")
-            parts.append(f"[lead{k}][body{k}]concat=n=2:v=0:a=1,apad,atrim=duration={tl.total:.4f}[c{k}]")
+            parts.append(f"[lead{k}][body{k}]concat=n=2:v=0:a=1,apad,atrim=duration={total:.4f}[c{k}]")
         else:
-            parts.append(f"{line},apad,atrim=duration={tl.total:.4f}[c{k}]")
+            parts.append(f"{line},apad,atrim=duration={total:.4f}[c{k}]")
     labels = "".join(f"[c{k}]" for k in range(len(cues)))
-    parts.append(f"{labels}amix=inputs={len(cues)}:normalize=0,{BROADCAST_VOICE},atrim=duration={tl.total:.4f}[vo]")
-    ffmpeg([*inputs, "-filter_complex", ";".join(parts), "-map", "[vo]", "-c:a", "pcm_s16le", "-ar", "48000", str(out)])
+    tail = f",{post}" if post else ""
+    parts.append(f"{labels}amix=inputs={len(cues)}:normalize=0{tail},atrim=duration={total:.4f}[st]")
+    ffmpeg([*inputs, "-filter_complex", ";".join(parts), "-map", "[st]", "-c:a", "pcm_s16le", "-ar", "48000", str(out)])
     return out
 
 
+def render_voice_stem(tl: Timeline, voice: dict[str, VoiceLine], tempo: float, out: Path) -> Path | None:
+    cues = [Cue(s.vo_file, s.vo_at, gain_db=s.vo_gain_db, tempo=tempo) for s in tl.slots if s.vo_file]
+    return _stem(cues, tl.total, out, BROADCAST_VOICE) if cues else None
+
+
+def render_audio_stems(project: Project, tl: Timeline, out_dir: Path) -> tuple[Path | None, Path | None]:
+    """edit.audio clips -> (sound stem, speech stem). Clips marked `duck` count as speech (they lower the music)."""
+    def cues(duck: bool) -> list[Cue]:
+        return [Cue(a.file, a.at, a.trim_start, a.duration, a.gain_db, a.fade_in, a.fade_out)
+                for a in project.edit.audio if a.duck == duck and a.at < tl.total]
+
+    out = []
+    for duck, name in ((False, "sfx.wav"), (True, "speech_extra.wav")):
+        c = cues(duck)
+        out.append(_stem(c, tl.total, out_dir / name) if c else None)
+    return out[0], out[1]
+
+
 def render_final(project: Project, tl: Timeline, base: Path, overlay: Path | None, vo_stem: Path | None,
-                 music: Path | None, out_master: Path) -> Path:
+                 music: Path | None, out_master: Path, sfx: Path | None = None, speech_extra: Path | None = None) -> Path:
     """Composite + mix. Master keeps full quality; deliveries are encoded from it."""
     total = tl.total
     inputs = ["-i", str(base)]
@@ -141,15 +188,31 @@ def render_final(project: Project, tl: Timeline, base: Path, overlay: Path | Non
     chains.append(f"{v}format=yuv422p10le[vout]")
     speech = ["[0:a]"] if project.mode in ("ugc", "influencer") else []
     beds = [] if speech else ["[0:a]"]
-    if vo_stem:
-        inputs += ["-i", str(vo_stem)]
-        speech.append(f"[{len(inputs) // 2 - 1}:a]")
+    for stem in (vo_stem, speech_extra):  # narration and extra speech clips duck the music
+        if stem:
+            inputs += ["-i", str(stem)]
+            speech.append(f"[{len(inputs) // 2 - 1}:a]")
+    if sfx:  # sound effects / jingles: mixed as they are, never ducked
+        inputs += ["-i", str(sfx)]
+        beds.append(f"[{len(inputs) // 2 - 1}:a]")
     if music:
         inputs += ["-i", str(music)]
         m = len(inputs) // 2 - 1
-        chains.append(f"[{m}:a]aresample=48000,aformat=channel_layouts=stereo,atrim=duration={total:.4f},"
-                      f"highpass=f=35,bass=g=-4:f=140,equalizer=f=2500:t=q:w=1.2:g=-3,"
-                      f"afade=t=out:st={max(0, total - 1.2):.4f}:d=1.2,volume={project.music.volume:.3f}[mus]")
+        me = project.edit.music
+        fmt = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+        head = f"atrim=start={me.offset:.4f},asetpts=PTS-STARTPTS," if me.offset > 0 else ""
+        fade_in = f"afade=t=in:st=0:d={me.fade_in:.3f}," if me.fade_in > 0 else ""
+        vol = project.music.volume * 10 ** (me.gain_db / 20)
+        chains.append(f"[{m}:a]aresample=48000,{fmt},{head}highpass=f=35,bass=g=-4:f=140,"
+                      f"equalizer=f=2500:t=q:w=1.2:g=-3,{fade_in}volume={vol:.4f}[mraw]")
+        if me.start > 1e-4:  # music enters later: real leading silence
+            chains.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={me.start:.5f},{fmt}[mlead]")
+            chains.append("[mlead][mraw]concat=n=2:v=0:a=1[mplaced]")
+            src = "[mplaced]"
+        else:
+            src = "[mraw]"
+        fade_out = f",afade=t=out:st={max(0, total - me.fade_out):.4f}:d={me.fade_out:.3f}" if me.fade_out > 0 else ""
+        chains.append(f"{src}apad,atrim=duration={total:.4f}{fade_out}[mus]")
     if speech:
         chains.append(f"{''.join(speech)}amix=inputs={len(speech)}:normalize=0[sp]")
         if music:

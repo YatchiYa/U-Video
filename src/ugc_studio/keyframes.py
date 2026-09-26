@@ -34,10 +34,14 @@ def _shrink(im: Image.Image, max_pixels: int) -> Image.Image:
 
 
 class KeyframeGenerator:
-    def __init__(self, steps: int = 4):
+    def __init__(self, steps: int = 4, source: str | None = None):
         from diffusers import Flux2KleinPipeline
 
-        source = str(FLUX_DIR) if (FLUX_DIR / "model_index.json").is_file() else FLUX_REPO
+        # `source`: another FLUX.2 klein checkpoint (HF repo id or local folder), e.g. from UGC_IMAGE_MODEL
+        source = source or (str(FLUX_DIR) if (FLUX_DIR / "model_index.json").is_file() else FLUX_REPO)
+        if "9b" in str(source).lower() and os.environ.get("UGC_ALLOW_NONCOMMERCIAL") != "1":
+            raise RuntimeError(f"{source}: FLUX.2 klein 9B weights are licensed for non-commercial use only. Use the "
+                               "4B (Apache-2.0), or set UGC_ALLOW_NONCOMMERCIAL=1 for research/personal use.")
         log.info("Loading FLUX.2 klein from %s", source)
         self.pipe = Flux2KleinPipeline.from_pretrained(source, dtype=torch.bfloat16)
         # 4B transformer + Qwen3 text encoder do not fit 12 GB together; offload per component.

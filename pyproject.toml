@@ -26,6 +26,10 @@ dependencies = [
     "espeakng-loader>=0.2.4",
     "pillow-heif>=1.8.0",
     "num2words>=0.5.14",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.54.0",
+    "python-multipart>=0.0.32",
+    "redis>=8.1.0",
 ]
 
 [project.scripts]

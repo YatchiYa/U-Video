@@ -15,10 +15,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-CLIP_MODEL = "openai/clip-vit-large-patch14"
+from ugc_studio.config import CLIP_MODEL, DINO_MODEL
+
 IDENTITY_MIN = 0.20  # calibrated: same subject 0.36-0.57, different subject 0.00-0.05
 PROMPT_MIN = 18.0  # calibrated: matching image 26-35, unrelated image ~6
-DINO_MODEL = "facebook/dinov2-base"
 
 
 @lru_cache(maxsize=1)

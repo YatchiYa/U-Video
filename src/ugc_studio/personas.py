@@ -81,9 +81,9 @@ def create(name: str, description: str, images: list[str] | None = None, voice_s
         shutil.copy(src_p, p.folder / dst)
         p.images.append(dst)
     if not p.images and generate:
-        from ugc_studio.keyframes import KeyframeGenerator
+        from ugc_studio import providers
 
-        gen = KeyframeGenerator()
+        gen = providers.create(None, "image")  # UGC_IMAGE_PROVIDER (default: local FLUX.2 klein)
         try:
             first = p.folder / "ref_00.png"
             gen.generate(f"Photorealistic {SHEET_VIEWS[0]} of {description}. Plain light gray seamless background, "

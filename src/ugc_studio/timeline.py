@@ -38,6 +38,8 @@ class Slot:
     stretch: float = 1.0
     vo_at: float | None = None  # absolute time the VO file starts playing
     vo_file: str | None = None
+    vo_gain_db: float = 0.0
+    vo_manual: bool = False  # pinned by hand (edit.voice): the scene does not stretch for it
     beats: dict[str, float] = field(default_factory=dict)  # word -> local time, for synced animation
     warnings: list[str] = field(default_factory=list)
 
@@ -103,14 +105,21 @@ def build(project: Project, voice: dict[str, VoiceLine] | None = None) -> Timeli
         lead = LEAD[sc.kind] + ts / 2
         need = 0.0
         vl = voice.get(sc.id)
+        pin = project.edit.voice.get(sc.id)
         if vl:
             speech = (vl.speech_end - vl.speech_start) / tempo
-            slot.vo_at = round(start + lead - vl.speech_start / tempo, 4)
             slot.vo_file = vl.file
-            need = lead + speech + (END_HOLD if sc.kind == "endcard" else TAIL)
+            if pin:  # pinned by hand: exactly where the editor put it; the scene keeps its own length
+                slot.vo_at, slot.vo_gain_db, slot.vo_manual = round(pin.at - vl.speech_start / tempo, 4), pin.gain_db, True
+                lead = pin.at - start
+            else:
+                slot.vo_at = round(start + lead - vl.speech_start / tempo, 4)
+                need = lead + speech + (END_HOLD if sc.kind == "endcard" else TAIL)
             for w in vl.words:
                 key = w["w"].lower().strip(".,!?;:«»\"'")
                 slot.beats.setdefault(key, round(lead + (w["t0"] - vl.speech_start) / tempo, 3))
+        elif pin:
+            raise ValueError(f"edit.voice.{sc.id}: scene {sc.id} has no voice-over line to place")
         if sc.kind in ("shot", "clip"):
             slot.clip_seconds = (sc.clip_in + sc.seconds if sc.kind == "clip"
                                  else clip_seconds(sc, fps, drops_first_frame(project, i)))
@@ -146,4 +155,61 @@ def build(project: Project, voice: dict[str, VoiceLine] | None = None) -> Timeli
         flex[-1].dur = round(flex[-1].dur + delta, 4)
         total = target
     total = round(math.floor(total * fps + 1e-6) / fps, 4)  # whole frames, never past the last real frame
+    _check_voice(project, voice, slots, total, tempo)
     return Timeline(fps, total, slots)
+
+
+def _check_voice(project: Project, voice: dict, slots: list[Slot], total: float, tempo: float) -> None:
+    """Pinned lines must end inside the video; overlapping narration is reported."""
+    unknown = set(project.edit.voice) - {s.id for s in project.scenes}
+    if unknown:
+        raise ValueError(f"edit.voice: unknown scene(s) {', '.join(sorted(unknown))}")
+    spans = []
+    for s in slots:
+        if s.vo_at is None:
+            continue
+        vl = voice[s.id]
+        a, b = s.vo_at + vl.speech_start / tempo, s.vo_at + vl.speech_end / tempo
+        if s.vo_manual and b > total + 1e-3:
+            raise ValueError(f"{s.id}: the voice line pinned at {a:.2f}s ends at {b:.2f}s, after the end of the video "
+                             f"({total:.2f}s). Move it earlier.")
+        spans.append((a, b, s))
+    spans.sort(key=lambda t: t[0])
+    for (a1, b1, s1), (a2, b2, s2) in zip(spans, spans[1:]):
+        if a2 < b1 - 0.05:
+            s2.warnings.append(f"its voice line ({a2:.2f}s) overlaps {s1.id}'s line (ends {b1:.2f}s)")
+
+
+def tracks(project: Project, tl: Timeline, voice: dict[str, VoiceLine] | None = None) -> dict:
+    """The edit as tracks of clips (video, voice, music, audio): what `ugc timeline show` and the editor display.
+    Times are seconds in the final video. `manual` marks what was placed by hand (edit.*)."""
+    voice = voice or {}
+    tempo = project.voice.tempo
+    scenes = {s.id: s for s in project.scenes}
+    video = []
+    for s in tl.slots:
+        sc = scenes[s.id]
+        label = sc.headline or sc.caption[0] if (sc.headline or sc.caption) else (sc.prompt or sc.kind)
+        video.append({"id": s.id, "kind": s.kind, "start": round(s.start, 3), "dur": round(s.dur, 3),
+                      "transition": s.transition, "transition_s": s.transition_s, "label": (label or "")[:80],
+                      "stretch": round(s.stretch, 3)})
+    vo = []
+    for s in tl.slots:
+        if s.vo_at is None or s.id not in voice:
+            continue
+        vl = voice[s.id]
+        a = s.vo_at + vl.speech_start / tempo
+        vo.append({"id": s.id, "start": round(a, 3), "dur": round((vl.speech_end - vl.speech_start) / tempo, 3),
+                   "text": scenes[s.id].voiceover, "manual": s.vo_manual, "gain_db": s.vo_gain_db})
+    me = project.edit.music
+    music = []
+    if project.music.mode != "none":
+        music.append({"id": "music", "start": me.start, "dur": round(max(0.0, tl.total - me.start), 3),
+                      "offset": me.offset, "gain_db": me.gain_db, "fade_in": me.fade_in, "fade_out": me.fade_out,
+                      "manual": me != type(me)()})
+    audio = [{"id": a.id, "file": a.file, "start": a.at, "dur": a.duration, "trim_start": a.trim_start,
+              "gain_db": a.gain_db, "fade_in": a.fade_in, "fade_out": a.fade_out, "duck": a.duck, "manual": True}
+             for a in project.edit.audio]
+    return {"fps": tl.fps, "total": tl.total, "tracks": [
+        {"id": "video", "kind": "video", "clips": video}, {"id": "voice", "kind": "voice", "clips": vo},
+        {"id": "music", "kind": "music", "clips": music}, {"id": "audio", "kind": "audio", "clips": audio}]}

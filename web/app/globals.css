@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* Calm, warm light theme. System fonts only (no external font service). */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial,
+    "Noto Sans Arabic", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --color-canvas: #f7f5f1;
+  --color-surface: #ffffff;
+  --color-ink: #1e1b2b;
+  --color-muted: #6c6879;
+  --color-line: #e7e3ec;
+
+  --color-brand-50: #f5f0ff;
+  --color-brand-100: #ece2ff;
+  --color-brand-200: #d9c7ff;
+  --color-brand-300: #bd9cff;
+  --color-brand-400: #9d6bff;
+  --color-brand-500: #7c3aed;
+  --color-brand-600: #6a2bd4;
+  --color-brand-700: #5821b0;
+  --color-brand-800: #461b8a;
+  --color-brand-900: #2e1260;
+
+  --color-coral-50: #fff3f1;
+  --color-coral-100: #ffe1dc;
+  --color-coral-500: #f2553f;
+  --color-coral-600: #d93d28;
+  --color-coral-700: #b32e1c;
+
+  --radius-xl2: 1.25rem;
+  --shadow-soft: 0 1px 2px rgb(30 27 43 / 0.04), 0 4px 16px rgb(30 27 43 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(30 27 43 / 0.06), 0 12px 32px rgb(30 27 43 / 0.1);
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  @keyframes shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--color-canvas);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-brand-400);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eeeaf2 0px, #f7f4fa 120px, #eeeaf2 240px);
+  background-size: 800px 100%;
+  animation: var(--animate-shimmer);
+}
+
+@keyframes jobslide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.job-slide {
+  animation: jobslide 1.6s ease-in-out infinite;
+}
+
+dialog::backdrop {
+  background: rgb(30 27 43 / 0.45);
+  backdrop-filter: blur(2px);
+}
+
+/* range inputs in brand color */
+input[type="range"] {
+  accent-color: var(--color-brand-500);
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-brand-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

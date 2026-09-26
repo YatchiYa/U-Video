@@ -1,0 +1,16 @@
+.git
+.venv
+**/node_modules
+**/__pycache__
+models
+outputs
+logs
+data_tests
+projects
+vendor/*
+!vendor/LTX-2
+web
+.env
+*.mp4
+*.mov
+*.wav

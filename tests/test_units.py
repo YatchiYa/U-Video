@@ -371,8 +371,58 @@ def test_best_sounding_take_with_every_word_right_is_kept(tmp_path, monkeypatch)
     monkeypatch.setattr(asr_mod, "unload", lambda: None)
     monkeypatch.setattr(ph_mod, "check", lambda path, script, language: {"score": 1.0, "flagged": []})
     monkeypatch.setattr(v_mod, "cut_tail", lambda *a, **k: False)
-    monkeypatch.setattr(q_mod, "mos", lambda path: rating[take_of(path)])
+    monkeypatch.setattr(q_mod, "score", lambda path: rating[take_of(path)])
     st = State(tmp_path)
     v_mod.build(p, st, tmp_path / "voice")
-    assert st.get("voice:a")["mos"] == 4.4 and st.get("voice:a")["score"] == 1.0
+    assert st.get("voice:a")["quality"] == 4.4 and st.get("voice:a")["score"] == 1.0
     assert take_of(tmp_path / "voice" / "a.wav") == "a.take2"
+
+
+def test_dotenv_example_parses_to_clean_values():
+    from ugc_studio.config import ROOT, parse_dotenv
+
+    d = parse_dotenv((ROOT / ".env.example").read_text())
+    assert d["UGC_VIDEO_PROVIDER"] == "local" and d["UGC_IMAGE_MODEL"] == "" and d["UGC_HF_PROVIDER"] == "hf-inference"
+    assert all("#" not in v for v in d.values())
+    assert parse_dotenv('A="x # y"\nB=tok # note\nC=\nD=a#b') == {"A": "x # y", "B": "tok", "C": "", "D": "a#b"}
+
+
+def test_stale_lines_detects_new_text_take_and_engine(tmp_path):
+    from ugc_studio.schema import Project
+    from ugc_studio.state import State
+    from ugc_studio.voice import stale_lines
+
+    p = Project.model_validate({"title": "t", "language": "French", "voice": {"engine": "chatterbox"},
+                                "scenes": [{"id": "a", "kind": "title", "voiceover": "Bonjour"},
+                                           {"id": "b", "kind": "title", "voiceover": "Salut"}]})
+    st = State(tmp_path)
+    (tmp_path / "a.wav").write_bytes(b"x")
+    for sid, text in (("a", "Bonjour"), ("b", "Salut")):
+        st.commit(f"voice:{sid}", {"t": text}, [tmp_path / "a.wav"], transcript=text, text=text, engine="chatterbox",
+                  take=0)
+    assert stale_lines(p, st) == []
+    p.scenes[0].voiceover = "Bonsoir"
+    p.scenes[1].voice_take = 1
+    assert stale_lines(p, st) == ["a", "b"]
+    p.scenes[0].voiceover, p.scenes[1].voice_take = "Bonjour", 0
+    p.voice.engine = "qwen"
+    assert stale_lines(p, st) == ["a", "b"]
+
+
+def test_voice_commands_never_render_video(tmp_path):
+    from typer.testing import CliRunner
+
+    from ugc_studio.cli import app
+
+    (tmp_path / "project.yaml").write_text(textwrap.dedent("""
+        title: t
+        mode: faceless
+        quality: draft
+        music: {mode: none}
+        scenes:
+          - {id: s01, prompt: a city at night, seconds: 3, voiceover: Hello there}
+    """))
+    r = CliRunner().invoke(app, ["voice", "set", str(tmp_path), "s01", "Good evening"])
+    assert r.exit_code == 1 and "needs new video" in r.output.replace("\n", " ")
+    assert "Good evening" in (tmp_path / "project.yaml").read_text()  # the text change itself is saved
+    assert (tmp_path / "project.yaml.bak").is_file()

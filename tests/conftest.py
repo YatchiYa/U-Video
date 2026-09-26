@@ -26,7 +26,7 @@ def calls(monkeypatch):
     c = Calls()
 
     class StubKeyframes:
-        def __init__(self, steps=4):
+        def __init__(self, steps=4, source=None):
             pass
 
         def generate(self, prompt, width, height, seed, references=None, out_path=None):

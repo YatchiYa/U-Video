@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 
-from ugc_studio.config import ACE_DIR, ACE_PYTHON, ROOT
 from ugc_studio.schema import Project
 from ugc_studio.state import State, ref
 
 log = logging.getLogger(__name__)
-WORKER = Path(__file__).parent / "workers" / "music_worker.py"
 
 MOOD = {
     "ugc": "light, feel-good lo-fi pop instrumental, soft beat, warm and friendly, unobtrusive",
@@ -60,20 +56,21 @@ def build(project: Project, state: State, workdir: Path, seconds: float) -> Path
     # A custom prompt is the user's intent: don't dilute it with the mode's default mood.
     mood = f" {MOOD[project.mode]}." if m.prompt == Music().prompt else ""
     caption = f"{m.prompt}.{mood} Instrumental, no vocals."
-    inputs = {"caption": caption, "seconds": round(seconds, 1), "bpm": m.bpm, "seed": project.seed}
+    from ugc_studio import providers
+    from ugc_studio.images import provider_tag
+
+    inputs = {"caption": caption, "seconds": round(seconds, 1), "bpm": m.bpm, "seed": project.seed,
+              **provider_tag(project, "music")}
     out = workdir / "bed.wav"
     if state.fresh("music", inputs):
         return out
-    if not ACE_PYTHON.is_file():
-        raise FileNotFoundError(f"Music environment missing ({ACE_PYTHON}). Run `ugc setup` or set music.mode: none.")
     workdir.mkdir(parents=True, exist_ok=True)
-    job = {"ace_dir": str(ACE_DIR), "caption": caption, "seconds": seconds, "bpm": m.bpm, "candidates": 2,
-           "seed": 5000 + project.seed, "out_dir": str(workdir)}
-    jp = workdir / "job.json"
-    jp.write_text(json.dumps(job))
-    proc = subprocess.run([str(ACE_PYTHON), str(WORKER), str(jp)], capture_output=True, text=True, cwd=ROOT)
-    if proc.returncode != 0:
-        raise RuntimeError(f"Music worker failed:\n{proc.stderr[-3000:]}")
+    for old in workdir.glob("cand*.wav"):  # candidates from another provider/run must not compete
+        old.unlink()
+    backend = providers.create(project, "music")
+    backend.generate(caption, seconds, m.bpm, 5000 + project.seed, 2, workdir)
+    if not any(workdir.glob("cand*.wav")):
+        raise RuntimeError(f"{backend.name} produced no music")
     scored = sorted(((score(p), p) for p in workdir.glob("cand*.wav")), key=lambda t: t[0]["total"], reverse=True)
     best = scored[0][1]
     shutil.copy(best, out)

@@ -89,7 +89,7 @@ class Studio:
         return {"prompt": video_prompt(self.project, s), "w": self.res.width, "h": self.res.height,
                 "segments": segment_frames(s.seconds, self.project.fps), "fps": self.project.fps,
                 "seed": self._shot_seed(i), "start": ref(fr.start), "end": ref(fr.end),
-                "continue_from": ref(prev) if prev else None}
+                "continue_from": ref(prev) if prev else None, **images.provider_tag(self.project, "video")}
 
     # ---------------------------------------------------------------- plan (dry run)
     def plan(self) -> list[PlanItem]:
@@ -119,12 +119,12 @@ class Studio:
             fixed = st.get(f"fixed:{s.id}")
             if retakes and (s.id in stale or not fixed or fixed.get("hash") is None):
                 items.append(PlanItem("fixes", f"fixed:{s.id}", f"{s.id}: {len(retakes)} retake(s)", shot_est * 0.8))
-        vo = [s for s in p.scenes if s.voiceover]
-        if vo and p.voice.enabled:
-            missing = [s for s in vo if not st.get(f"voice:{s.id}") or
-                       st.get(f"voice:{s.id}").get("transcript") is None]
-            if missing:
-                items.append(PlanItem("voice", "voice", f"{len(missing)} narration line(s)", 60 + 10 * len(missing)))
+        from ugc_studio.voice import stale_lines
+
+        redo = stale_lines(p, st)
+        if redo:
+            items.append(PlanItem("voice", "voice", f"{len(redo)} narration line(s): {', '.join(redo)}",
+                                  60 + 10 * len(redo)))
         if p.music.mode == "generate" and not st.get("music"):
             items.append(PlanItem("music", "music", "original music (2 candidates)", 150))
         items.append(PlanItem("edit", "edit", "screens, conform, graphics, mix, deliveries",
@@ -133,7 +133,7 @@ class Studio:
 
     # ---------------------------------------------------------------- build
     def build(self, only: list[str] | None = None, deliveries: tuple[str, ...] = ("web",),
-              offload: str = "cpu") -> BuildResult:
+              offload: str | None = None) -> BuildResult:
         t0 = time.time()
         p, st, d = self.project, self.state, self.dir
         if self.ingest.errors:
@@ -141,6 +141,7 @@ class Studio:
         for w in self.ingest.warnings:
             self.progress("frames", f"⚠ {w}")
         warnings: list[str] = []
+        self._check_providers()
 
         # 1. frames
         self.progress("frames", "identity references and keyframes")
@@ -160,7 +161,7 @@ class Studio:
         from ugc_studio import music as music_mod
 
         self.progress("music", "music bed")
-        bed = music_mod.build(p, st, d / "music", tl.total + 1.5)
+        bed = music_mod.build(p, st, d / "music", tl.total + 1.5 + p.edit.music.offset)
 
         # 4. shots + fixes (LTX loaded once, only if something needs rendering)
         self._render_shots(frames, only, offload)
@@ -187,6 +188,10 @@ class Studio:
             if not st.fresh("vostem", vin):
                 edit.render_voice_stem(tl, vo, p.voice.tempo, vo_stem)
                 st.commit("vostem", vin, [vo_stem])
+        # extra sounds placed on the timeline (edit.audio): cheap, deterministic, so rebuilt every time
+        sfx = speech_x = None
+        if p.edit.audio:
+            sfx, speech_x = edit.render_audio_stems(p, tl, d / "render")
         words = self._caption_words(base, vo_stem)
         overlay = None
         if motion.needs_overlay(p):
@@ -207,9 +212,11 @@ class Studio:
         self.progress("edit", "mix and master")
         master = d / "render" / "master.mov"
         min_ = {"base": ref(base), "overlay": ref(overlay), "vo": ref(vo_stem), "music": ref(bed),
-                "vol": p.music.volume, "mode": p.mode, "code": _code_hash()}
+                "vol": p.music.volume, "mode": p.mode, "code": _code_hash(),
+                **({"sfx": ref(sfx), "speech_x": ref(speech_x)} if p.edit.audio else {}),
+                **({"music_edit": p.edit.music.model_dump()} if p.edit.music != type(p.edit.music)() else {})}
         if not st.fresh("master", min_):
-            edit.render_final(p, tl, base, overlay, vo_stem, bed, master)
+            edit.render_final(p, tl, base, overlay, vo_stem, bed, master, sfx, speech_x)
             st.commit("master", min_, [master])
         outs = {}
         slug = "".join(c if c.isalnum() else "_" for c in p.title.lower()).strip("_")[:50] or "video"
@@ -232,10 +239,11 @@ class Studio:
         def get_renderer():
             nonlocal renderer
             if renderer is None:
-                from ugc_studio.render import ShotRenderer
+                from ugc_studio import providers
 
-                self.progress("shots", "loading LTX-2.5 (fp8, CPU offload)")
-                renderer = ShotRenderer(offload=offload)
+                local = providers.choice(p, "video").provider == "local"
+                self.progress("shots", "loading LTX-2.5" if local else f"video: {providers.choice(p, 'video').provider}")
+                renderer = providers.create(p, "video", **({"offload": offload} if local else {}))
             return renderer
 
         def get_retaker():
@@ -258,7 +266,7 @@ class Studio:
                 if not st.fresh(f"clip:{s.id}", cin):
                     if only and s.id not in only:
                         raise RuntimeError(f"scene {s.id} needs rendering but is excluded by --only")
-                    from ugc_studio.render import ImageCondition
+                    from ugc_studio.providers.base import ImageCondition
 
                     conds = []
                     fr = frames.get(s.id)
@@ -300,6 +308,23 @@ class Studio:
                 renderer.close()
             if retaker is not None:
                 retaker.close()
+
+    def _check_providers(self) -> None:
+        """Fail before any generation when the chosen video provider can't do what the script needs."""
+        from ugc_studio import providers
+
+        p = self.project
+        if not any(s.kind == "shot" for s in p.scenes):
+            return
+        c = providers.choice(p, "video")
+        cls = providers.load("video", c.provider)
+        talking = [s.id for s in p.scenes if s.kind == "shot" and s.dialogue]
+        if talking and not getattr(cls, "makes_audio", True):
+            raise ValueError(f"Scenes {', '.join(talking)} have on-camera dialogue, but the video provider "
+                             f"{c.provider!r} makes no speech. Use video: local (LTX-2.5), veo, kling or seedance, "
+                             "or turn the dialogue into a voiceover.")
+        if any(f.kind == "retake" for s in p.scenes for f in s.fixes) and not getattr(cls, "supports_retake", True):
+            self.progress("fixes", "⚠ retake fixes use the local LTX-2.5 model (the cloud provider can't retake)")
 
     def _refs_for(self, s) -> list[str]:
         """Identity references of the characters/products in a shot (your photos, persona, or generated refs)."""

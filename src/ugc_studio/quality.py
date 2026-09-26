@@ -1,6 +1,8 @@
-"""Speech quality: a predicted listener rating (MOS 1-5) for a voice take, without a reference recording.
+"""Speech quality of a voice take, without a reference recording.
 
-TorchAudio SQUIM subjective model, on CPU. Used to pick the best-sounding take among takes that say every word right.
+TorchAudio SQUIM *objective* model (weights CC-BY-4.0, trained on DNS 2020): estimates PESQ (≈1 to 4.5, the ITU
+measure of perceived speech quality). Used to pick the best-sounding take among takes that say every word right.
+The SQUIM *subjective* (MOS) model is not used: its weights are CC-BY-NC-4.0 (non-commercial).
 """
 
 from __future__ import annotations
@@ -11,20 +13,15 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from ugc_studio.config import ROOT
-
-# Any clean, unrelated speech works as SQUIM's "non-matching reference".
-NMR = ROOT / "src" / "ugc_studio" / "assets" / "nmr_speech.wav"
-
 
 @lru_cache(maxsize=1)
 def _model():
-    from torchaudio.pipelines import SQUIM_SUBJECTIVE
+    from torchaudio.pipelines import SQUIM_OBJECTIVE
 
-    return SQUIM_SUBJECTIVE.get_model().eval()
+    return SQUIM_OBJECTIVE.get_model().eval()
 
 
-def _load(path) -> "np.ndarray":
+def _load(path):
     import torch
     import torchaudio
 
@@ -33,8 +30,10 @@ def _load(path) -> "np.ndarray":
     return torchaudio.functional.resample(torch.from_numpy(np.ascontiguousarray(y))[None], sr, 16000)
 
 
-def mos(path: str | Path) -> float:
+def score(path: str | Path) -> float:
+    """Estimated PESQ of the take (higher = cleaner, more natural)."""
     import torch
 
     with torch.no_grad():
-        return float(_model()(_load(path), _load(NMR))[0])
+        _stoi, pesq, _si_sdr = _model()(_load(path))
+    return float(pesq[0])

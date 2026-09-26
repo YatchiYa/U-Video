@@ -179,3 +179,17 @@ pour une integration native avec un front next js que tu dois developpé parfait
 pour que je puisse tous ce que je peux avec CLI, je peux le faire d'une maniere intuitve sur l'interface
 que même un gamin puisse l'utiliser
 facile, guidé, ludique, parfait sur le front parce que les personnes uqi utilisent cr''est pas des techniques... 
+
+
+
+
+comparé à openmontage repo git,
+comment se situe mon systeme ?
+
+
+prepare tous pour : 
+Avant de publier :
+
+un README avec une démo en GIF ou vidéo ;
+une vérification des licences des modèles : LTX-2.5 a sa propre licence communautaire à relire pour l'usage commercial ; Habibi (Apache) et Chatterbox (MIT) sont déjà clairs ;
+idéalement, les variables d'environnement pour choisir les modèles (point 4), pour que d'autres puissent l'utiliser avec leur matériel.

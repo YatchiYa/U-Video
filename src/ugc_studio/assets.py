@@ -229,6 +229,9 @@ def ingest(project, project_dir: Path) -> IngestReport:
             rep.errors.append(f"voice.reference_audio not found: {p}")
         else:
             project.voice.reference_audio = normalize_audio(p, out, rep)
+    for clip in project.edit.audio:
+        if not Path(clip.file).is_file():
+            rep.errors.append(f"edit.audio {clip.id}: file not found: {clip.file}")
     if project.music.mode == "file" and project.music.file and not Path(project.music.file).is_file():
         rep.errors.append(f"music.file not found: {project.music.file}")
     return rep

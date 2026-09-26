@@ -24,7 +24,13 @@ app = typer.Typer(add_completion=True, no_args_is_help=True, rich_markup_mode="r
                   help="[bold]UGC Studio[/]: local AI video production. UGC, influencer, faceless viral, promo / TV.")
 persona_app = typer.Typer(no_args_is_help=True, help="Reusable AI personas (face + voice) for influencer/UGC videos.")
 models_app = typer.Typer(no_args_is_help=True, help="Model weights.")
+voice_app = typer.Typer(no_args_is_help=True, help="Change only the voice-over: text, take, voice/engine or your own "
+                                                   "recording. Rebuilds narration + mix only, never the video shots.")
 app.add_typer(persona_app, name="persona")
+timeline_app = typer.Typer(no_args_is_help=True, help="Edit the timeline by hand: move voice lines, add sounds, shape "
+                                                        "the music. Rebuilds the mix only, never the video shots.")
+app.add_typer(voice_app, name="voice")
+app.add_typer(timeline_app, name="timeline")
 app.add_typer(models_app, name="models")
 console = Console()
 
@@ -65,6 +71,57 @@ def _studio(project: Path, **kw):
 
 
 # ====================================================================== system
+@app.command(rich_help_panel="System")
+def serve(host: Annotated[str, typer.Option(help="Bind address")] = "127.0.0.1",
+          port: Annotated[int, typer.Option(help="Port")] = 8000,
+          worker: Annotated[bool, typer.Option(help="Also run the job worker in this process")] = True) -> None:
+    """HTTP API for the web app (docs at /docs). Without REDIS_URL, jobs live in memory and the worker runs here."""
+    import threading
+
+    import uvicorn
+
+    from ugc_studio import jobs
+
+    if worker:
+        threading.Thread(target=jobs.work, daemon=True, name="worker").start()
+    console.print(f"[green]UGC Studio API[/] on http://{host}:{port}  ·  docs http://{host}:{port}/docs  ·  "
+                  f"jobs: {type(jobs.store()).__name__}" + (" + embedded worker" if worker else ""))
+    uvicorn.run("ugc_studio.api:app", host=host, port=port, log_level="warning")
+
+
+@app.command(rich_help_panel="System")
+def worker() -> None:
+    """Job worker (renders, mixes, exports...): reads the queue shared with the API through REDIS_URL."""
+    import os as _os
+
+    from ugc_studio import jobs
+
+    if not _os.environ.get("REDIS_URL"):
+        _fail("REDIS_URL is not set: without Redis, use `ugc serve` (API with an embedded worker).")
+    console.print("[green]worker[/] waiting for jobs (gpu + light queues)…")
+    jobs.work()
+
+
+@app.command(rich_help_panel="System")
+def providers(project: Annotated[Optional[Path], typer.Argument(help="Project folder (optional)")] = None) -> None:
+    """Which model/provider generates images, video, voice and music (local or cloud), and whether keys are set."""
+    from ugc_studio import providers as prov
+
+    p = _studio(project).project if project else None
+    t = Table(title="Providers" + (f" · {p.title}" if p else " (from .env)"))
+    for col in ("capability", "provider", "model", "set by", "API key", "license", "available"):
+        t.add_column(col, overflow="fold")
+    for r in prov.describe(p):
+        keys = ", ".join(f"{'[green]✓' if ok else '[red]✗'}[/] {k}" for k, ok in r["keys"].items()) or "-"
+        lic = r["license"] or "-"
+        lic = f"[yellow]{lic}" if "UNCERTAIN" in lic or "non-commercial" in lic.lower() else lic
+        t.add_row(r["kind"], f"[bold]{r['provider']}", r["model"] or "default", r["source"], keys, lic,
+                  ", ".join(r["available"]))
+    console.print(t)
+    console.print("[dim]Change: providers: {video: kling} in project.yaml, or UGC_VIDEO_PROVIDER=kling in .env "
+                  "(see .env.example). Local model checkpoints: UGC_LTX_*, UGC_FLUX_*, UGC_ASR_MODEL...")
+
+
 @app.command(rich_help_panel="System")
 def doctor() -> None:
     """Check GPU, power mode, memory, disk, environments and model weights."""
@@ -116,17 +173,21 @@ def setup() -> None:
                       config.MOTION_DIR))
     if not config.TTS_PYTHON.is_file():
         (config.VENDOR_DIR / "tts").mkdir(parents=True, exist_ok=True)
-        steps.append(("voice env", ["uv", "venv", "-q", "--python", "3.12", ".venv"], config.VENDOR_DIR / "tts"))
+        steps.append(("voice env", ["uv", "venv", "-q", "--python-preference", "only-managed", "--python", "3.12", ".venv"], config.VENDOR_DIR / "tts"))
         steps.append(("voice packages", ["uv", "pip", "install", "--python", ".venv/bin/python", "qwen-tts",
                                          "soundfile"], config.VENDOR_DIR / "tts"))
-    if not config.CHATTERBOX_PYTHON.is_file():  # Arabic + 13 more narration languages (MIT)
+    chatterbox_ok = config.CHATTERBOX_PYTHON.is_file() and subprocess.run(
+        [str(config.CHATTERBOX_PYTHON), "-c", "import chatterbox, catt_tashkeel"], capture_output=True).returncode == 0
+    if not chatterbox_ok:  # Arabic (+ automatic diacritics) and 22 more narration languages (MIT)
         (config.VENDOR_DIR / "chatterbox").mkdir(parents=True, exist_ok=True)
-        steps.append(("arabic voice env", ["uv", "venv", "-q", "--python", "3.11", ".venv"], config.VENDOR_DIR / "chatterbox"))
+        if not config.CHATTERBOX_PYTHON.is_file():
+            steps.append(("arabic voice env", ["uv", "venv", "-q", "--python-preference", "only-managed", "--python",
+                                               "3.11", ".venv"], config.VENDOR_DIR / "chatterbox"))
         steps.append(("arabic voice packages", ["uv", "pip", "install", "--python", ".venv/bin/python", "chatterbox-tts",
-                                                "soundfile", "setuptools<81"], config.VENDOR_DIR / "chatterbox"))
+                                                "soundfile", "setuptools<81", "catt-tashkeel"], config.VENDOR_DIR / "chatterbox"))
     if not config.HABIBI_PYTHON.is_file():  # Arabic dialects (Apache-2.0 specialized checkpoints)
         (config.VENDOR_DIR / "habibi").mkdir(parents=True, exist_ok=True)
-        steps.append(("dialect voice env", ["uv", "venv", "-q", "--python", "3.11", ".venv"], config.VENDOR_DIR / "habibi"))
+        steps.append(("dialect voice env", ["uv", "venv", "-q", "--python-preference", "only-managed", "--python", "3.11", ".venv"], config.VENDOR_DIR / "habibi"))
         steps.append(("dialect voice packages", ["uv", "pip", "install", "--python", ".venv/bin/python", "habibi-tts",
                                                  "soundfile"], config.VENDOR_DIR / "habibi"))
         steps.append(("dialect voice torch", ["uv", "pip", "install", "--python", ".venv/bin/python", "--reinstall",
@@ -138,7 +199,10 @@ def setup() -> None:
                                          "https://github.com/ace-step/ACE-Step-1.5.git", str(config.ACE_DIR)],
                           config.VENDOR_DIR))
         steps.append(("music env", ["uv", "sync"], config.ACE_DIR))
-    steps.append(("browser", [str(Path(os.sys.executable).parent / "playwright"), "install", "chromium"], config.ROOT))
+    browsers = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
+    if not any(browsers.glob("chromium-*")):  # already in the Docker image
+        steps.append(("browser", [str(Path(os.sys.executable).parent / "playwright"), "install", "chromium"],
+                      config.ROOT))
     for name, cmd, cwd in steps:
         with console.status(f"[cyan]{name}[/]…"):
             r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
@@ -186,9 +250,6 @@ def new(
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Don't ask anything (use defaults)")] = False,
 ) -> None:
     """Create a project: an interactive wizard (or flags) → director → project.yaml ready to review and render."""
-    from ugc_studio import director as dr
-    from ugc_studio.schema import Brand
-
     ask = not yes
     if not mode:
         if ask:
@@ -231,31 +292,15 @@ def new(
         if not f.expanduser().is_file():
             _fail(f"file not found: {f}")
 
-    folder = config.OUTPUTS_DIR / (name or f"{time.strftime('%Y%m%d-%H%M')}_{mode}")
-    folder.mkdir(parents=True, exist_ok=True)
-    site_info, brand, facts = None, None, ""
-    if url:
-        from ugc_studio import site
+    from ugc_studio import service
 
-        with console.status("[cyan]Reading the website (text, brand, screens)…"):
-            site_info = site.analyze(url, folder / "site")
-        brand = dr.brand_from_site(site_info)
-        facts = dr.site_facts(site_info)
-        console.print(f"[green]✓[/] site: [bold]{brand.name}[/] · colors {brand.primary} {brand.secondary} · "
-                      f"{len(site_info.get('links', []))} pages")
-    n, shot_s = dr.shots_for(mode, seconds)
-    with console.status("[cyan]Director is writing the script (local LLM)…"):
-        d = dr.Director()
-        try:
-            beats = d.beats(mode, brief, n, shot_s, language, facts)
-        finally:
-            d.close()
-    proj = dr.assemble(mode, beats, seconds=seconds, aspect=aspect, quality=quality, language=language, seed=seed,
-                       brand=brand or Brand(), persona=persona, char_images=[str(f.expanduser().resolve()) for f in face or []],
-                       product_desc=product or "", product_images=[str(f.expanduser().resolve()) for f in product_image or []],
-                       site=site_info, style=style)
-    proj.save(folder / "project.yaml")
-    _show_project(proj)
+    with console.status("[cyan]Creating the project (website, then the director writes the script)…") as status:
+        r = _svc(service.create_project, name or f"{time.strftime('%Y%m%d-%H%M')}_{mode}", mode, brief, seconds,
+                 aspect, quality, language, url, persona, [str(f.expanduser()) for f in face or []], product,
+                 [str(f.expanduser()) for f in product_image or []], style, seed,
+                 progress=lambda stage, msg: status.update(f"[cyan]{stage}: {msg}"))
+    folder = Path(r["path"])
+    _show_project(service.load(folder))
     console.print(Panel(f"[bold]{folder / 'project.yaml'}[/]\n\nReview/edit it, then:\n"
                         f"  ugc plan {folder}\n  ugc render {folder}", title="[green]project created", border_style="green"))
 
@@ -282,7 +327,6 @@ def site(url: str, out: Annotated[Path, typer.Option(help="Where to save screens
 @app.command(rich_help_panel="Produce")
 def plan(project: ProjectArg) -> None:
     """Show the storyboard and exactly what a render would generate (and how long it should take)."""
-    from ugc_studio.engine import Studio
 
     st = _studio(project)
     _show_project(st.project)
@@ -306,11 +350,10 @@ def render(
     only: Annotated[Optional[str], typer.Option(help="Only allow these scenes to (re)render, e.g. s01,s03")] = None,
     deliver: Annotated[str, typer.Option(help="Outputs: web, tv (comma separated)")] = "web",
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation")] = False,
-    offload: str = "cpu",
+    offload: Annotated[Optional[str], typer.Option(help="LTX weights: cpu (12 GB GPUs) or none; default UGC_LTX_OFFLOAD")] = None,
     qa: Annotated[bool, typer.Option(help="Run the quality check at the end")] = True,
 ) -> None:
     """Build the video. Resumable and incremental: only what changed since last time is regenerated."""
-    from ugc_studio.engine import Studio
 
     stage_icon = {"frames": "🖼", "voice": "🎙", "music": "🎵", "shots": "🎬", "fixes": "🩹", "screens": "🌐", "edit": "✂"}
 
@@ -341,7 +384,6 @@ def render(
 @app.command(rich_help_panel="Produce")
 def status(project: ProjectArg) -> None:
     """Scene-by-scene state: cached vs pending, fixes, timing in the final video."""
-    from ugc_studio.engine import Studio
     from ugc_studio.timeline import Timeline
 
     st = _studio(project)
@@ -417,47 +459,29 @@ def fix(
     [bold]interpolate[/]: a few bad frames are rebuilt from their neighbours (seconds, no AI).
     [bold]retake[/]: only a ~1 s window of the shot is regenerated.
     [bold]reshoot[/]: the whole shot is regenerated with a new seed/prompt, keeping its keyframes."""
-    from ugc_studio import fix as fx_mod
-    from ugc_studio.engine import Studio, clip_seconds, locate
+    from ugc_studio import service
 
-    st = _studio(project)
     if undo:
-        removed = fx_mod.undo_fix(st.project, undo)
-        st.save_project()
-        console.print(f"[green]removed[/] {removed}" if removed else f"[yellow]{undo} has no fixes")
+        r = _svc(service.undo_fix, project, undo)
+        console.print(f"[green]undone[/] {r['removed']}" if r["removed"] else f"[yellow]{undo} has no fix or reshoot to undo")
         return
     if at is None and not scene:
         _fail("give --at <seconds> (where the problem is) or --scene <id>")
+    r = _svc(service.add_fix, project, at, duration, mode, prompt, seed, scene)
     if at is not None:
-        slot, local = locate(st.dir, at)
-        target = slot.id
-        console.print(f"{at:.2f}s → scene [bold]{slot.id}[/] ({slot.kind}) at {local:.2f}s of its clip")
-    else:
-        target, local, slot = scene, 0.0, None
-    sc = st.project.scene(target)
-    if sc.kind != "shot":
-        console.print(Panel(f"Scene {target} is a [bold]{sc.kind}[/] (graphics). Edit its text in project.yaml; "
-                            "a render then redraws only the graphics layer (no AI generation).", border_style="yellow"))
+        console.print(f"{at:.2f}s → scene [bold]{r['scene']}[/] at {r.get('local', 0):.2f}s of its clip")
+    if r["action"] == "none":
+        console.print(Panel(r["message"], border_style="yellow"))
         return
-    if mode == "reshoot":
-        if seed is not None:
-            sc.seed = seed  # an explicit seed also re-draws the keyframe
-        else:
-            sc.take += 1  # same keyframes and seams, new video take
-        if prompt:
-            sc.prompt = prompt
-        console.print(f"[green]reshoot[/] {target}: " + (f"seed {seed}" if seed is not None else f"take {sc.take}")
+    if r["action"] == "reshoot":
+        console.print(f"[green]reshoot[/] {r['scene']}: " + (f"seed {seed}" if seed is not None else f"take {r['take']}")
                       + (", new prompt" if prompt else ""))
     else:
-        fx = fx_mod.plan_fix(local, duration, mode, clip_seconds(st.dir, target))
-        fx.prompt, fx.seed = prompt, seed
-        fx_mod.add_fix(st.project, target, fx)
-        console.print(f"[green]{fx.kind}[/] {target} {fx.start:.2f}-{fx.end:.2f}s (clip time)")
-    st.save_project()
+        console.print(f"[green]{r['action']}[/] {r['scene']} {r['start']:.2f}-{r['end']:.2f}s (clip time)")
     if now:
-        render(Path(project), None, "web", True, "cpu", True)
+        render(Path(project), None, "web", True, None, True)
     else:
-        console.print(f"Apply with: [bold]ugc render {project}[/] (only {target} and the final edit are rebuilt)")
+        console.print(f"Apply with: [bold]ugc render {project}[/] (only {r['scene']} and the final edit are rebuilt)")
 
 
 @app.command(rich_help_panel="Produce")
@@ -475,24 +499,14 @@ def export(
     at: Annotated[float, typer.Option(help="cover: time of the frame to use (default: first frame = the hook)")] = 0.0,
 ) -> None:
     """Extra deliveries from the master: TV (-23 LUFS), web (-14 LUFS), a reframed social cut, or a cover image."""
-    from ugc_studio.edit import deliver
+    from ugc_studio import service
 
-    master = Path(project) / "render" / "master.mov"
-    if not master.is_file():
-        _fail("render the project first")
+    with console.status(f"[cyan]encoding {fmt}…"):
+        out = _svc(service.export, project, fmt, at)
     if fmt == "cover":
-        from ugc_studio.media import ffmpeg
-
-        out = Path(project) / "out" / "cover.jpg"
-        ffmpeg(["-ss", f"{at:.3f}", "-i", str(master), "-frames:v", "1", "-q:v", "2", str(out)])
         console.print(f"[green]✓ {out}[/] (upload it as the TikTok/Reels cover)")
         return
-    sizes = {"vertical": (1080, 1920), "square": (1080, 1080), "portrait": (1080, 1350)}
-    out = Path(project) / "out" / f"export_{fmt}.mp4"
-    w, h = sizes.get(fmt, (None, None))
-    with console.status(f"[cyan]encoding {fmt}…"):
-        deliver(master, out, "tv" if fmt == "tv" else "web", w, h)
-    if w:
+    if fmt in service.EXPORT_SIZES:
         console.print("[yellow]Reframed by center crop: for a native layout, set aspect in project.yaml and render.")
     console.print(f"[green]✓ {out}")
 
@@ -502,7 +516,6 @@ def qa(target: Annotated[Path, typer.Argument(help="Project folder or video file
     """Quality report: frames, audio loudness, speech vs script, black/frozen/flicker, contact sheet."""
     video, st = target, None
     if target.is_dir():
-        from ugc_studio.engine import Studio
 
         st = _studio(target)
         outs = sorted((target / "out").glob("*.mp4"))
@@ -589,17 +602,231 @@ def icons() -> None:
 def image(prompt: str, out: Annotated[Path, typer.Option("--out", "-o")] = Path("image.png"),
           ref: Annotated[Optional[list[Path]], typer.Option(help="Reference image(s)")] = None,
           aspect: str = "9:16", seed: int = 42) -> None:
-    """Generate or edit one image with FLUX.2 klein (use --ref to keep a person/product consistent)."""
+    """Generate or edit one image (UGC_IMAGE_PROVIDER, default FLUX.2 klein; --ref keeps a person/product)."""
+    from ugc_studio import providers
     from ugc_studio.images import keyframe_size
-    from ugc_studio.keyframes import KeyframeGenerator
 
     w, h = keyframe_size(config.resolution(aspect, "standard"), 1.0)
-    g = KeyframeGenerator()
+    g = providers.create(None, "image")
     try:
         g.generate(prompt, w, h, seed, references=[str(r) for r in ref or []], out_path=out)
     finally:
         g.close()
     console.print(f"[green]✓ {out}[/] ({w}x{h})")
+
+
+# ====================================================================== voice-over and timeline (mix only)
+def _svc(fn, *a, **kw):
+    """Run a service call with readable errors (ServiceError and invalid project.yaml are both ValueErrors)."""
+    try:
+        return fn(*a, **kw)
+    except (ValueError, FileNotFoundError, KeyError) as e:
+        _fail(str(e))
+
+
+def _mix_rebuild(project: Path) -> None:
+    """Narration + mix only: refuses (with the reason) if the change would need new keyframes or video shots."""
+    from ugc_studio import service
+
+    def progress(stage: str, msg: str) -> None:
+        console.print(f"  [cyan]{stage:<7}[/] {msg}")
+
+    try:
+        res = service.rebuild_mix(project, progress)
+    except (service.ServiceError, FileNotFoundError, ValueError, RuntimeError) as e:
+        _fail(str(e))
+    for w in res.warnings:
+        console.print(f"[yellow]⚠ {w}")
+    for kind, path in res.deliveries.items():
+        console.print(f"[green]✓ {kind}:[/] {path}")
+    console.print(f"[dim]{res.timeline.total:.2f}s video · voice + mix rebuilt in {_fmt(res.seconds)}")
+
+
+RenderOpt = Annotated[bool, typer.Option(help="Rebuild narration + mix now")]
+
+
+@voice_app.command("list")
+def voice_list(project: ProjectArg) -> None:
+    """Every narration line: text, accuracy, sound quality, length, what was heard, and what would be redone."""
+    from ugc_studio import service
+
+    v = _svc(service.voice_lines, project)
+    console.print(f"Engine: [bold]{v['engine']}[/]" + (f" · voice {v['voice_id']}" if v["voice_id"] else "")
+                  + (f" · file {v['file']}" if v["file"] else ""))
+    t = Table(show_lines=True)
+    for col in ("scene", "text", "words", "sound", "length", "heard", "state"):
+        t.add_column(col, overflow="fold")
+    for ln in v["lines"]:
+        state = "[yellow]will redo" if ln["stale"] else "[green]ok" + (f" (take {ln['take']})" if ln["take"] else "")
+        if ln["pinned_at"] is not None:
+            state += f" · pinned {ln['pinned_at']:.2f}s"
+        t.add_row(ln["id"], ln["text"], f"{ln['score']:.0%}" if ln["score"] is not None else "-",
+                  f"{ln['quality']:.2f}" if ln["quality"] else "-", f"{ln['seconds']:.1f}s" if ln["seconds"] else "-",
+                  ln["heard"] or "-", state)
+    console.print(t)
+
+
+@voice_app.command("set")
+def voice_set(project: ProjectArg, scene: str, text: str, render: RenderOpt = True) -> None:
+    """Change the words of one narration line."""
+    from ugc_studio import service
+
+    _svc(service.voice_set, project, scene, text)
+    console.print(f"[green]✓[/] {scene}: {text}")
+    if render:
+        _mix_rebuild(project)
+
+
+@voice_app.command("redo")
+def voice_redo(project: ProjectArg, scenes: Annotated[list[str], typer.Argument(help="Scene id(s)")],
+               render: RenderOpt = True) -> None:
+    """Record a new take of these lines (same words, new delivery); the other lines stay as they are."""
+    from ugc_studio import service
+
+    _svc(service.voice_redo, project, scenes)
+    console.print(f"[green]✓[/] new take for {', '.join(scenes)}")
+    if render:
+        _mix_rebuild(project)
+
+
+@voice_app.command("engine")
+def voice_engine(project: ProjectArg,
+                 engine: Annotated[str, typer.Argument(help="auto, qwen, chatterbox, habibi, elevenlabs, openai, gemini")],
+                 voice_id: Annotated[Optional[str], typer.Option(help="Cloud voice id/name")] = None,
+                 model: Annotated[Optional[str], typer.Option(help="Cloud TTS model")] = None,
+                 dialect: Annotated[Optional[str], typer.Option(help="Arabic dialect for habibi: MSA ALG EGY IRQ MAR")] = None,
+                 render: RenderOpt = True) -> None:
+    """Switch the narration voice/engine for the whole video (all lines are re-voiced, the shots are kept)."""
+    from ugc_studio import service
+
+    _svc(service.voice_engine, project, engine, voice_id, model, dialect)
+    console.print(f"[green]✓[/] voice engine: {engine}")
+    if render:
+        _mix_rebuild(project)
+
+
+@voice_app.command("file")
+def voice_file(project: ProjectArg, audio: Annotated[Path, typer.Argument(help="Your voice-over (mp3, wav, m4a...)")],
+               render: RenderOpt = True) -> None:
+    """Use your own recording as the voice-over (copied into the project, transcribed and cut per scene)."""
+    from ugc_studio import service
+
+    _svc(service.voice_file, project, audio)
+    console.print(f"[green]✓[/] voice-over file: {audio}")
+    if render:
+        _mix_rebuild(project)
+
+
+@timeline_app.command("show")
+def timeline_show(project: ProjectArg) -> None:
+    """The edit as tracks: video scenes, voice lines, music, extra audio (times in the final video)."""
+    from ugc_studio import service
+
+    v = _svc(service.timeline_view, project)
+    console.print(f"[bold]{v['total']:.2f}s[/] · {v['fps']} fps")
+    for tr in v["tracks"]:
+        t = Table(title=tr["id"], title_justify="left", box=None)
+        for col in ("clip", "start", "end", "details"):
+            t.add_column(col, overflow="fold")
+        for cl in tr["clips"]:
+            end = cl["start"] + cl["dur"] if cl.get("dur") else None
+            if tr["id"] == "video":
+                det = f"{cl['kind']} · {cl['transition']} · {cl['label']}"
+            elif tr["id"] == "voice":
+                det = ("[magenta]pinned[/] " if cl["manual"] else "") + cl["text"]
+            elif tr["id"] == "music":
+                det = f"offset {cl['offset']}s · {cl['gain_db']:+.1f} dB · fades {cl['fade_in']}/{cl['fade_out']}s"
+            else:
+                det = f"{Path(cl['file']).name} · {cl['gain_db']:+.1f} dB" + (" · ducks music" if cl["duck"] else "")
+            t.add_row(cl["id"], f"{cl['start']:.2f}", f"{end:.2f}" if end is not None else "end", det)
+        if tr["clips"]:
+            console.print(t)
+    for w in v["warnings"]:
+        console.print(f"[yellow]⚠ {w}")
+    if v["missing_voice"]:
+        console.print(f"[dim]not generated yet (placed after the next render): {', '.join(v['missing_voice'])}")
+
+
+@timeline_app.command("move")
+def timeline_move(project: ProjectArg, scene: Annotated[str, typer.Argument(help="Scene id of the voice line")],
+                  at: Annotated[Optional[float], typer.Option(help="Start of the line (s in the final video)")] = None,
+                  auto: Annotated[bool, typer.Option("--auto", help="Back to automatic placement")] = False,
+                  gain: Annotated[Optional[float], typer.Option(help="Line volume (dB)")] = None,
+                  render: RenderOpt = True) -> None:
+    """Move a narration line anywhere on the timeline (it may overlap the next scene, like an L-cut)."""
+    from ugc_studio import service
+
+    if not auto and at is None:
+        _fail("give --at <seconds> or --auto")
+    _svc(service.move_voice, project, scene, None if auto else at, gain)
+    console.print(f"[green]✓[/] {scene}: " + ("automatic placement" if auto else f"starts at {at:.2f}s"))
+    if render:
+        _mix_rebuild(project)
+
+
+@timeline_app.command("add-audio")
+def timeline_add_audio(project: ProjectArg, file: Annotated[Path, typer.Argument(help="Sound, jingle, recording")],
+                       at: Annotated[float, typer.Option(help="Start (s in the final video)")] = 0.0,
+                       trim_start: Annotated[Optional[float], typer.Option(help="Skip into the file (s)")] = None,
+                       duration: Annotated[Optional[float], typer.Option(help="Play this long (s)")] = None,
+                       gain: Annotated[Optional[float], typer.Option(help="Volume (dB)")] = None,
+                       fade_in: Optional[float] = None, fade_out: Optional[float] = None,
+                       duck: Annotated[bool, typer.Option(help="It is speech: lower the music under it")] = False,
+                       clip_id: Annotated[Optional[str], typer.Option("--id")] = None,
+                       render: RenderOpt = True) -> None:
+    """Place an extra sound on the timeline (copied into the project)."""
+    from ugc_studio import service
+
+    clip = _svc(service.add_audio, project, file, at, clip_id, trim_start=trim_start, duration=duration,
+                gain_db=gain, fade_in=fade_in, fade_out=fade_out, duck=duck)
+    console.print(f"[green]✓[/] audio [bold]{clip.id}[/] at {clip.at:.2f}s")
+    if render:
+        _mix_rebuild(project)
+
+
+@timeline_app.command("set-audio")
+def timeline_set_audio(project: ProjectArg, clip_id: Annotated[str, typer.Argument(help="Audio clip id")],
+                       at: Optional[float] = None, trim_start: Optional[float] = None,
+                       duration: Optional[float] = None, gain: Optional[float] = None,
+                       fade_in: Optional[float] = None, fade_out: Optional[float] = None,
+                       duck: Annotated[Optional[bool], typer.Option("--duck/--no-duck")] = None,
+                       render: RenderOpt = True) -> None:
+    """Move or adjust an extra sound."""
+    from ugc_studio import service
+
+    fields = dict(at=at, trim_start=trim_start, duration=duration, gain_db=gain, fade_in=fade_in, fade_out=fade_out,
+                  duck=duck)
+    _svc(service.update_audio, project, clip_id, **{k: v for k, v in fields.items() if v is not None})
+    console.print(f"[green]✓[/] audio {clip_id} updated")
+    if render:
+        _mix_rebuild(project)
+
+
+@timeline_app.command("remove-audio")
+def timeline_remove_audio(project: ProjectArg, clip_id: str, render: RenderOpt = True) -> None:
+    """Remove an extra sound from the timeline."""
+    from ugc_studio import service
+
+    _svc(service.remove_audio, project, clip_id)
+    console.print(f"[green]✓[/] removed {clip_id}")
+    if render:
+        _mix_rebuild(project)
+
+
+@timeline_app.command("music")
+def timeline_music(project: ProjectArg,
+                   start: Annotated[Optional[float], typer.Option(help="Music enters at (s)")] = None,
+                   offset: Annotated[Optional[float], typer.Option(help="Skip into the music (s)")] = None,
+                   gain: Annotated[Optional[float], typer.Option(help="Extra volume (dB)")] = None,
+                   fade_in: Optional[float] = None, fade_out: Optional[float] = None,
+                   render: RenderOpt = True) -> None:
+    """Place and shape the music bed."""
+    from ugc_studio import service
+
+    _svc(service.set_music, project, start=start, offset=offset, gain_db=gain, fade_in=fade_in, fade_out=fade_out)
+    console.print("[green]✓[/] music updated")
+    if render:
+        _mix_rebuild(project)
 
 
 # ====================================================================== helpers
@@ -627,27 +854,10 @@ def _fmt(sec: float) -> str:
 
 
 def _run_qa(video: Path, st=None) -> None:
-    from ugc_studio.qa import analyze
-    from ugc_studio.voice import names as voice_names
+    from ugc_studio import service
 
-    expected = None
-    if st is not None:
-        expected = " ".join((s.dialogue or s.voiceover or "") for s in st.project.scenes).strip() or None
-    ignore = []
-    if st is not None and (st.dir / "timeline.json").is_file():
-        from ugc_studio.timeline import Timeline
-
-        tl = Timeline.load(st.dir / "timeline.json")
-        ignore = [(s.start, s.start + s.transition_s) for s in tl.slots if s.transition != "cut" and s.transition_s]
-        # designed light bursts of 3D reveals are intentional flashes, not flicker
-        for s in tl.slots:
-            sc = st.project.scene(s.id)
-            if sc.kind == "devices" or (sc.kind == "screen" and sc.reveal == "spin"):
-                ignore.append((s.start, s.start + 1.6))
     with console.status("[cyan]quality check…"):
-        r = analyze(video, expected_speech=expected, run_asr=bool(expected), ignore=ignore,
-                    language=st.project.language if st is not None else None,
-                     names=voice_names(st.project) if st is not None else None)
+        r = _svc(service.qa, st.dir if st is not None else None, video)
     colour = {"PASS": "green", "WARN": "yellow", "FAIL": "red"}[r.verdict]
     t = Table(title=f"QA: {video.name}  [{colour}]{r.verdict}[/]", show_header=False)
     t.add_row("video", f"{r.width}x{r.height} @ {r.fps:.2f} fps · {r.frames} frames · {r.duration_s:.2f}s")

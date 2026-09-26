@@ -10,45 +10,70 @@ from pathlib import Path
 ROOT = Path(os.environ.get("UGC_ROOT", Path(__file__).resolve().parents[2]))
 
 
-def _load_dotenv(path: Path) -> None:
-    """Minimal .env loader (KEY=VALUE lines); real environment variables win."""
-    if not path.is_file():
-        return
-    for line in path.read_text().splitlines():
+def parse_dotenv(text: str) -> dict[str, str]:
+    """KEY=VALUE lines; `# comments` on their own line or after a value (unless quoted); empty values allowed."""
+    import re
+
+    out = {}
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+        value = value.strip()
+        m = re.match(r"""^(['"])(.*?)\1""", value)
+        value = m.group(2) if m else ("" if value.startswith("#") else re.split(r"\s+#", value, maxsplit=1)[0].strip())
+        out[key.strip()] = value
+    return out
+
+
+def _load_dotenv(path: Path) -> None:
+    """Load .env; real environment variables win."""
+    if path.is_file():
+        for key, value in parse_dotenv(path.read_text()).items():
+            os.environ.setdefault(key, value)
 
 
 _load_dotenv(ROOT / ".env")
 
-MODELS_DIR = Path(os.environ.get("UGC_MODELS", ROOT / "models"))
-OUTPUTS_DIR = Path(os.environ.get("UGC_OUTPUTS", ROOT / "outputs"))
-VENDOR_DIR = ROOT / "vendor"
+def env(name: str, default: str) -> str:
+    """UGC_* setting: the environment (or .env) wins over the built-in default. Empty values fall back too."""
+    return os.environ.get(name) or default
+
+
+MODELS_DIR = Path(env("UGC_MODELS", str(ROOT / "models")))
+OUTPUTS_DIR = Path(env("UGC_OUTPUTS", str(ROOT / "outputs")))
+VENDOR_DIR = Path(env("UGC_VENDOR", str(ROOT / "vendor")))
 MOTION_DIR = Path(__file__).parent / "motion"
 
-LTX_DIR = MODELS_DIR / "ltx-2.5"
-LTX_REPO = "Lightricks/LTX-2.5"
+# ---- local models (every one can be swapped for another open-source checkpoint with an env var; see .env.example)
+LTX_DIR = Path(env("UGC_LTX_DIR", str(MODELS_DIR / "ltx-2.5")))
+LTX_REPO = env("UGC_LTX_REPO", "Lightricks/LTX-2.5")
 LTX_FILES = {
-    "transformer": "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors",
-    "text_encoder": "text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors",
-    "video_vae": "vae/ltx-2.5-video-vae-bf16.safetensors",
-    "audio_vae": "vae/ltx-2.5-audio-vae-bf16.safetensors",
-    "spatial_upsampler": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+    "transformer": env("UGC_LTX_TRANSFORMER", "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors"),
+    "text_encoder": env("UGC_LTX_TEXT_ENCODER", "text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors"),
+    "video_vae": env("UGC_LTX_VIDEO_VAE", "vae/ltx-2.5-video-vae-bf16.safetensors"),
+    "audio_vae": env("UGC_LTX_AUDIO_VAE", "vae/ltx-2.5-audio-vae-bf16.safetensors"),
+    "spatial_upsampler": env("UGC_LTX_UPSAMPLER",
+                             "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"),
 }
+LTX_QUANTIZATION = env("UGC_LTX_QUANTIZATION", "fp8-cast")  # "none" = full bf16 (needs a bigger GPU)
+LTX_OFFLOAD = env("UGC_LTX_OFFLOAD", "cpu")                  # cpu | none
 
-FLUX_DIR = MODELS_DIR / "flux2-klein-4b"
-FLUX_REPO = "black-forest-labs/FLUX.2-klein-4B"
-DIRECTOR_LLM = os.environ.get("UGC_DIRECTOR_LLM", "Qwen/Qwen3-4B-Instruct-2507")
-ASR_MODEL = "openai/whisper-large-v3-turbo"
+FLUX_DIR = Path(env("UGC_FLUX_DIR", str(MODELS_DIR / "flux2-klein-4b")))
+FLUX_REPO = env("UGC_FLUX_REPO", "black-forest-labs/FLUX.2-klein-4B")
+FLUX_STEPS = int(env("UGC_FLUX_STEPS", "4"))
+DIRECTOR_LLM = env("UGC_DIRECTOR_LLM", "Qwen/Qwen3-4B-Instruct-2507")
+ASR_MODEL = env("UGC_ASR_MODEL", "openai/whisper-large-v3-turbo")
+PHONEME_MODEL = env("UGC_PHONEME_MODEL", "facebook/wav2vec2-xlsr-53-espeak-cv-ft")
+CLIP_MODEL = env("UGC_CLIP_MODEL", "openai/clip-vit-large-patch14")
+DINO_MODEL = env("UGC_DINO_MODEL", "facebook/dinov2-base")
 TTS_PYTHON = VENDOR_DIR / "tts" / ".venv" / "bin" / "python"
-TTS_DESIGN_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
-TTS_CLONE_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+TTS_DESIGN_MODEL = env("UGC_TTS_DESIGN_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
+TTS_CLONE_MODEL = env("UGC_TTS_CLONE_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
 CHATTERBOX_PYTHON = VENDOR_DIR / "chatterbox" / ".venv" / "bin" / "python"
 HABIBI_PYTHON = VENDOR_DIR / "habibi" / ".venv" / "bin" / "python"
-ACE_DIR = VENDOR_DIR / "ACE-Step-1.5"
+ACE_DIR = Path(env("UGC_ACE_DIR", str(VENDOR_DIR / "ACE-Step-1.5")))
 ACE_PYTHON = ACE_DIR / ".venv" / "bin" / "python"
 
 # LTX-2.5 distilled: frames must be 8k+1; 121 frames is the trained maximum per generation.

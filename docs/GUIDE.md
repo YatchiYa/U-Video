@@ -21,6 +21,9 @@ edit. Nothing leaves your machine.
    - [Every combination: what you have → what to write](#5b-every-combination-what-you-have--what-to-write)
 6. [Seamless videos: continuity and transitions](#6-seamless-videos-continuity-and-transitions)
 7. [Review, fix, re-render (only what changed)](#7-review-fix-re-render-only-what-changed)
+   - [Change only the voice-over](#7b-change-only-the-voice-over)
+   - [Choose your models: local or cloud](#7c-choose-your-models-local-or-cloud)
+   - [Place things by hand on the timeline](#7d-place-things-by-hand-on-the-timeline)
 8. [project.yaml reference](#8-projectyaml-reference)
 9. [Command reference](#9-command-reference)
 10. [Quality, speed and limits](#10-quality-speed-and-limits)
@@ -72,6 +75,22 @@ echo "HF_TOKEN=hf_xxx" > .env     # Hugging Face read token; accept https://hugg
 > 40 W; `powerprofilesctl set performance` gives it 115 W and renders about twice as fast.
 
 Add `.venv/bin` to your PATH (or prefix commands with `.venv/bin/`). All commands have `--help`.
+
+### Or: the web app (Docker)
+
+No command line needed after installation. The web app guides you step by step: create, check the storyboard,
+generate, fix a moment, change the voice, edit the timeline, export.
+
+```bash
+cp .env.example .env
+docker compose up -d --build                         # web app: http://localhost:3000
+docker compose run --rm worker ugc setup             # once
+docker compose run --rm worker ugc models download   # once (skip if ./models is already filled)
+```
+
+To reuse the models you already downloaded, point the containers at your folders in `.env`:
+`UGC_MODELS_HOST=/path/to/models`, `UGC_OUTPUTS_HOST=/path/to/outputs`, `HF_CACHE_HOST=/home/you/.cache/huggingface`.
+Without Docker, `ugc serve` starts the API with a built-in worker (the web app then runs with `npm run dev` in `web/`).
 
 ---
 
@@ -415,6 +434,69 @@ undoable**: the original clip is never modified.
 **Text or graphics wrong?** (headline, caption, feature, offer...) Edit `project.yaml` (`ugc edit`) and render:
 only the graphics layer is redrawn, with no AI generation.
 
+### 7b. Change only the voice-over
+
+The narration never forces a new video. These commands re-voice what you ask, re-mix, and **refuse** if the change
+would need new shots (they tell you to run `ugc render` instead). About 4 minutes, no GPU video work.
+
+```bash
+ugc voice list outputs/my_video                           # every line: text, accuracy, sound quality, heard as...
+ugc voice set  outputs/my_video s03 "Nouveau texte ici."  # new words for one line
+ugc voice redo outputs/my_video s03 s05                   # new takes of these lines (others untouched)
+ugc voice engine outputs/my_video elevenlabs --voice-id <id>   # another voice/engine for the whole video
+ugc voice file outputs/my_video my_voiceover.mp3          # your own recording, cut per scene automatically
+```
+
+Add `--no-render` to only edit `project.yaml`. A `.bak` of the previous file is kept. On-camera `dialogue` (UGC) is
+spoken by the video model: change it with `ugc fix --scene s01 --mode reshoot` after editing the line.
+
+### 7c. Choose your models: local or cloud
+
+By default everything runs locally with open-source models. Any capability can use another provider:
+
+| Capability | Choices |
+|---|---|
+| images | `local` (FLUX.2 klein), `openai`, `gemini`, `huggingface` |
+| video | `local` (LTX-2.5), `veo` (Google Veo 3.1), `kling` (Kling 3.0), `seedance` (ByteDance) |
+| voice | `auto` / `qwen` / `chatterbox` / `habibi` (local), `elevenlabs`, `openai`, `gemini` |
+| music | `local` (ACE-Step), `elevenlabs` |
+
+For all projects, in `.env` (copy `.env.example`):
+
+```bash
+UGC_VIDEO_PROVIDER=kling
+KLING_API_KEY=...
+```
+
+For one project, in `project.yaml` (wins over `.env`):
+
+```yaml
+providers: {video: veo, image: openai}
+voice: {engine: elevenlabs, voice_id: <your ElevenLabs voice id>}
+```
+
+Check what will be used and whether keys are set: `ugc providers` (or `ugc providers outputs/my_video`).
+Quality gates, captions, edit and fixes work the same with every provider. Local checkpoints can be swapped too
+(`UGC_LTX_*`, `UGC_FLUX_REPO`, `UGC_ASR_MODEL`...): see `.env.example` and [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### 7d. Place things by hand on the timeline
+
+Everything is placed automatically; take control only where you want. Same effect in the web app's timeline editor.
+
+```bash
+ugc timeline show outputs/my_video                       # tracks: scenes, voice lines, music, extra sounds
+ugc timeline move outputs/my_video s03 --at 9.5          # this line starts at 9.5 s (may overlap the next scene)
+ugc timeline move outputs/my_video s03 --auto            # back to automatic
+ugc timeline add-audio outputs/my_video whoosh.wav --at 4.2 --gain -6 --fade-out 0.3
+ugc timeline add-audio outputs/my_video testimonial.mp3 --at 12 --duck   # speech: lowers the music under it
+ugc timeline set-audio outputs/my_video whoosh --at 4.0
+ugc timeline remove-audio outputs/my_video whoosh
+ugc timeline music outputs/my_video --start 1.5 --offset 8 --gain -3 --fade-out 2
+```
+
+Each command saves the change in `project.yaml` (under `edit:`) and rebuilds only the sound mix: never the video.
+A voice line moved past the end of the video is refused and nothing changes.
+
 ---
 
 ## 8. project.yaml reference
@@ -506,6 +588,10 @@ anything is generated.
 | `ugc fix PROJECT --at T [--duration D] [--mode ...] [--prompt ...]` | surgical repair |
 | `ugc fix PROJECT --scene ID --mode reshoot [--seed N]` | regenerate one shot |
 | `ugc fix PROJECT --undo ID` | remove a fix |
+| `ugc voice list\|set\|redo\|engine\|file PROJECT ...` | change only the voice-over (never re-renders video) |
+| `ugc providers [PROJECT]` | which model/provider makes images, video, voice, music; API keys present; license notes |
+| `ugc timeline show\|move\|add-audio\|set-audio\|remove-audio\|music PROJECT ...` | place voice lines, sounds and music by hand |
+| `ugc serve [--port 8000]` / `ugc worker` | HTTP API for the web app (+ embedded worker) / standalone worker with Redis |
 | `ugc edit PROJECT` | open `project.yaml` in your editor |
 | `ugc export PROJECT --format tv\|web\|vertical\|square\|portrait` | extra deliveries |
 | `ugc export PROJECT --format cover [--at T]` | cover image (thumbnail) for TikTok / Reels |
@@ -524,7 +610,8 @@ anything is generated.
   `reveal: flip` tips it up from below; `rise` (default) slides it in.
 - **`kind: devices`:** 2-4 phones fly out of a stack and fan out in 3D, each playing its own live page (e.g. one per
   language) with a label.
-- **`theme: dark`** gives graphics scenes a deep, glowing brand-colored background.
+- **`theme: dark`** gives graphics scenes (title, screen, devices, features, endcard) a deep, glowing brand-colored
+  background; an Arabic endcard mirrors its layout automatically.
 
 ### Ready for TikTok / Instagram
 

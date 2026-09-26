@@ -31,7 +31,6 @@ logs/
 *.m4a
 *.wav
 *.mp3
-!src/ugc_studio/assets/*.wav
 
 # --- legacy DZ-MeNU TV spot: keep the scripts, not its captures/renders
 projects/dzmenu/broll/
@@ -49,3 +48,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# written by `next dev` for coding agents
+web/AGENTS.md
+web/CLAUDE.md
+web/.next/

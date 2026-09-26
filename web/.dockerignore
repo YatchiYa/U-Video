@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+build
+coverage
+npm-debug.log*
+.env*
+!.env.example
+Dockerfile
+.dockerignore
+.git
+*.md
+!README.md

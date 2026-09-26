@@ -61,9 +61,16 @@ def _run_worker(job: dict, workdir: Path, engine: str = "qwen") -> None:
 
 
 def pick_engine(project: Project) -> str:
+    """The narration engine: voice.engine, else UGC_VOICE_PROVIDER, else the best local engine for the language."""
+    from ugc_studio import providers
+
     v, lang = project.voice, project.language.lower()
-    if v.engine != "auto":
-        return v.engine
+    c = providers.choice(project, "voice")
+    if c.provider != "auto":
+        if c.provider not in providers.VOICE and c.provider not in providers.LOCAL_VOICES:
+            raise ValueError(f"Unknown voice engine {c.provider!r}. Available: "
+                             f"{', '.join([*providers.LOCAL_VOICES, *sorted(providers.VOICE)])}")
+        return c.provider
     if v.dialect and v.dialect != "MSA" and lang == "arabic":
         return "habibi"
     if lang in TTS_LANGUAGES:
@@ -143,7 +150,6 @@ def from_file(project: Project, state: State, workdir: Path) -> dict[str, VoiceL
     from ugc_studio.media import ffmpeg
 
     src = Path(project.voice.file)
-    inputs = {"file": ref(src), "language": project.language, "scenes": [s.voiceover for s in project.scenes]}
     tr_key = "voicefile:transcript"
     if not state.fresh(tr_key, {"file": ref(src), "language": project.language}):
         tr = asr.transcribe(str(src), project.language)
@@ -252,6 +258,28 @@ def cut_tail(path: Path, last_word_end: float, gap: float = 0.25, floor_db: floa
     return False
 
 
+def stale_lines(project: Project, state: State) -> list[str]:
+    """Narration lines the next build will (re)generate: new, text changed, new take, or another engine.
+    (Lines made before this bookkeeping existed only count when missing.)"""
+    if project.voice.file or not project.voice.enabled:
+        return []
+    try:
+        engine = pick_engine(project)
+    except ValueError:
+        engine = None
+    out = []
+    for s in project.scenes:
+        if not (s.voiceover and s.voiceover.strip()):
+            continue
+        a = state.get(f"voice:{s.id}")
+        if not a or a.get("transcript") is None:
+            out.append(s.id)
+        elif "text" in a and (a["text"] != spoken(project, s.voiceover.strip()) or a.get("take", 0) != s.voice_take
+                              or (engine and a.get("engine") not in (None, engine))):
+            out.append(s.id)
+    return out
+
+
 def trim_to_script(path: Path, tr: dict, written: str, spoken_text: str, language: str) -> dict:
     """Remove words the voice invented after (or before) the scripted line, then re-transcribe.
     Works for every engine and language: the script's words are aligned to the heard words (with timing)."""
@@ -297,21 +325,35 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
     if retries is None:
         retries = project.voice.retries or (3 if engine == "qwen" else 5)
     need = max(PASS, project.voice.min_accuracy)
-    if engine == "qwen":
+    cloud = None
+    if engine not in ("qwen", "chatterbox", "habibi"):  # cloud TTS: its own voices, no reference recording
+        from ugc_studio import providers
+
+        cloud = providers.create(project, "voice")
+        ref_audio, ref_text = None, ""
+    elif engine == "qwen":
         ref_audio, ref_text = reference_voice(project, state, workdir)
     elif engine == "chatterbox":  # its own MIT voice, or a clone of voice.reference_audio
         ref_audio, ref_text = (Path(project.voice.reference_audio) if project.voice.reference_audio else None), ""
     else:  # habibi needs a reference: yours, or an Arabic reference made with Chatterbox (rights-clean)
+        log.warning("Habibi-TTS: commercial use is uncertain (its checkpoints are fine-tuned from the CC-BY-NC "
+                    "F5-TTS base). For client work, prefer voice.engine: chatterbox or a cloud voice (docs/LICENSES.md).")
         ref_audio, ref_text = _habibi_reference(project, state, workdir)
     from ugc_studio.state import file_hash
 
     worker_file = {"qwen": WORKER, "chatterbox": WORKERS / "chatterbox_worker.py",
-                   "habibi": WORKERS / "habibi_worker.py"}[engine]
+                   "habibi": WORKERS / "habibi_worker.py"}.get(engine, Path(__file__).parent / "providers" / f"{engine}.py")
     ref_in = {"ref": ref(ref_audio), "ref_text": ref_text, "language": project.language.lower(), "engine": engine,
               "dialect": project.voice.dialect, "worker": file_hash(worker_file)[:12], "post": 2,
+              **({"model": project.voice.model, "voice_id": project.voice.voice_id} if cloud else {}),
               **({"candidates": project.voice.candidates} if project.voice.candidates > 1 else {})}  # bump when post-processing changes
-    todo = [sid for sid, text in lines.items() if not state.fresh(f"voice:{sid}", {**ref_in, "text": text})]
-    seed_of = {sid: 7 for sid in todo}
+    take_of = {s.id: s.voice_take for s in project.scenes if s.id in lines}
+
+    def key(sid: str) -> dict:  # a new take (`ugc voice redo`) is a new line: other lines stay cached
+        return {**ref_in, "text": lines[sid], **({"take": take_of[sid]} if take_of.get(sid) else {})}
+
+    todo = [sid for sid in lines if not state.fresh(f"voice:{sid}", key(sid))]
+    seed_of = {sid: 7 + 7919 * take_of.get(sid, 0) for sid in todo}
     n_cand = project.voice.candidates
     best: dict[str, dict] = {}  # best take so far per line: every word right first, then the best listener rating
 
@@ -326,9 +368,9 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
         if phonetics.supported(project.language):
             flagged = [f["word"] for f in phonetics.check(p, lines[sid], project.language)["flagged"]]
         good = score >= need and not flagged
-        mos = quality.mos(p) if (good and n_cand > 1) else None
-        return {"path": p, "score": score, "flagged": flagged, "tr": tr, "seed": seed, "good": good, "mos": mos,
-                "rank": (good, mos or 0.0, score - 0.1 * len(flagged))}
+        q = quality.score(p) if (good and n_cand > 1) else None
+        return {"path": p, "score": score, "flagged": flagged, "tr": tr, "seed": seed, "good": good, "quality": q,
+                "rank": (good, q or 0.0, score - 0.1 * len(flagged))}
 
     for attempt in range(retries):
         if not todo:
@@ -337,7 +379,9 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
         cfg = [0.5, 0.35, 0.65, 0.45, 0.55][attempt % 5]
         batch = [{"id": sid if k == 0 else f"{sid}.take{k}", "text": lines[sid], "seed": seed_of[sid] + 1009 * k,
                   "cfg": cfg} for sid in todo for k in range(n_cand)]
-        if engine == "qwen":
+        if cloud is not None:
+            cloud.synthesize(batch, workdir, project.language, project.voice)
+        elif engine == "qwen":
             _run_worker({"clone_model": TTS_CLONE_MODEL, "language": project.language, "ref_audio": str(ref_audio),
                          "ref_text": ref_text, "out_dir": str(workdir), "lines": batch}, workdir, "qwen")
         elif engine == "chatterbox":
@@ -366,10 +410,11 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
                 shutil.copy(workdir / f"{sid}.best.wav", p)
                 (workdir / f"{sid}.best.wav").unlink(missing_ok=True)
                 s0, s1 = _speech_bounds(p)
-                state.commit(f"voice:{sid}", {**ref_in, "text": lines[sid]}, [p], score=round(b["score"], 3),
+                state.commit(f"voice:{sid}", key(sid), [p], text=lines[sid], engine=engine, take=take_of.get(sid, 0),
+                             score=round(b["score"], 3),
                              mispronounced=b["flagged"], transcript=b["tr"]["text"], words=b["tr"]["words"],
                              speech_start=round(s0, 3), speech_end=round(s1, 3), seed=b["seed"],
-                             mos=None if b["mos"] is None else round(b["mos"], 2))
+                             quality=None if b["quality"] is None else round(b["quality"], 2))
                 if not b["good"]:
                     log.warning("Voice line %s kept at %.0f%% accuracy (best of %d tries): %r", sid, b["score"] * 100,
                                 retries, b["tr"]["text"])

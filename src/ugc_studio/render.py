@@ -6,24 +6,17 @@ import gc
 import logging
 import os
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 
-from ugc_studio.config import FPS, ltx_path, missing_ltx_files
+from ugc_studio.config import FPS, LTX_OFFLOAD, LTX_QUANTIZATION, ltx_path, missing_ltx_files
 from ugc_studio.media import extract_frame
+from ugc_studio.providers.base import ImageCondition, VideoBackend
 
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ImageCondition:
-    path: str
-    frame_idx: int = 0  # 0 = first frame; num_frames-1 = land exactly on this image at the end
-    strength: float = 1.0
 
 
 def _model_paths():
@@ -40,7 +33,9 @@ def _model_paths():
 def _policy(quantization: str | None):
     from ltx_pipelines.utils.quantization_factory import QuantizationKind
 
-    return QuantizationKind(quantization).to_policy(checkpoint_path=str(ltx_path("transformer"))) if quantization else None
+    if quantization in (None, "", "none"):
+        return None
+    return QuantizationKind(quantization).to_policy(checkpoint_path=str(ltx_path("transformer")))
 
 
 def _check_models() -> None:
@@ -54,10 +49,16 @@ def _free() -> None:
     torch.cuda.empty_cache()
 
 
-class ShotRenderer:
-    """DistilledPipeline built once and reused for every shot (FP8-cast weights streamed from CPU RAM)."""
+class ShotRenderer(VideoBackend):
+    """Local LTX-2.5: DistilledPipeline built once and reused for every shot (FP8-cast weights streamed from CPU RAM).
+    Native audio (ambience, lip-synced speech), first + last frame conditioning, time-window retakes."""
 
-    def __init__(self, offload: str = "cpu", quantization: str | None = "fp8-cast"):
+    name = "local (LTX-2.5)"
+    makes_audio = True
+    supports_end_frame = True
+    supports_retake = True
+
+    def __init__(self, offload: str | None = None, quantization: str | None = LTX_QUANTIZATION):
         _check_models()
         from ltx_pipelines.distilled import DistilledPipeline
         from ltx_pipelines.utils.types import OffloadMode
@@ -67,7 +68,7 @@ class ShotRenderer:
             spatial_upsampler_path=str(ltx_path("spatial_upsampler")),
             loras=[],
             quantization=_policy(quantization),
-            offload_mode=OffloadMode(offload),
+            offload_mode=OffloadMode(offload or LTX_OFFLOAD),
         )
 
     @torch.inference_mode()
@@ -129,13 +130,13 @@ class ShotRenderer:
 class RetakeRenderer:
     """Regenerates only [start, end] of an existing clip; everything outside the window is preserved."""
 
-    def __init__(self, offload: str = "cpu", quantization: str | None = "fp8-cast"):
+    def __init__(self, offload: str | None = None, quantization: str | None = LTX_QUANTIZATION):
         _check_models()
         from ltx_pipelines.retake import RetakePipeline
         from ltx_pipelines.utils.types import OffloadMode
 
         self.pipeline = RetakePipeline(model_paths=_model_paths(), loras=(), quantization=_policy(quantization),
-                                       distilled=True, offload_mode=OffloadMode(offload))
+                                       distilled=True, offload_mode=OffloadMode(offload or LTX_OFFLOAD))
 
     @torch.inference_mode()
     def retake(self, src: str | Path, out_path: str | Path, prompt: str, start: float, end: float, seed: int,
