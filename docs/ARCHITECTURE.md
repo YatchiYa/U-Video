@@ -60,7 +60,7 @@ src/ugc_studio/
   judge.py        CLIP prompt score, DINOv2 identity score, per-clip visual checks
   quality.py      speech quality of voice takes (SQUIM objective PESQ estimate, CC-BY-4.0)
   fix.py          surgical fixes: interpolate / freeze / retake (+ plan_fix time mapping)
-  director.py     LLM (Qwen3-4B) writes the creative beats; Python assembles a valid Project
+  director.py     LLM (Qwen3.5-9B, 4-bit) writes the creative beats; Python assembles a valid Project
   styles.py       mode/style presets, keyframe and video prompt builders (+ unbranded devices rule)
   site.py         website analysis (colors, fonts, logo, headlines) and screenshots (Playwright)
   personas.py     reusable characters (face refs + voice) in personas/<name>/
@@ -181,6 +181,7 @@ flowchart TB
   end
 ```
 
+- **Arabic** speech gets a second, more literal transcript from Qwen3-ASR next to Whisper. A line passes only when both agree. The second opinion tolerates dialect spellings (a word counts when 80% of its letters match), while Whisper stays strict. In testing, this caught a take where Whisper heard « وارتاح » but the voice said « واجتهد ».
 - The **pronunciation** check exists because Whisper is a language model: it "hears" *bancaire* even when the speaker said *banchaire*. The phoneme model has no language model, so it doesn't correct what it hears.
 - **Tolerances are deliberately narrow:**
   - voicing assimilation and dropped final consonants are ignored;
@@ -224,7 +225,7 @@ The dates below are from the official docs, checked 2026-09-25.
 
 | Capability | Provider | Default model | Key(s) | Notes |
 |---|---|---|---|---|
-| image | `local` | FLUX.2 klein 4B | — | multi-reference identity |
+| image | `local` | **Qwen-Image-Edit-2511** (GGUF Q4 + Lightning 4-step) for frames with references; **Z-Image Turbo** or FLUX.2 klein 4B without | — | smart routing by frame, one engine loaded at a time; falls back to FLUX when a model isn't downloaded |
 | image | `openai` | `gpt-image-2.5-flare` | `OPENAI_API_KEY` | `/images/edits` with up to 16 references, `input_fidelity: high` |
 | image | `gemini` | `gemini-3.1-flash-image` | `GEMINI_API_KEY` | Interactions API; up to 14 references |
 | image | `huggingface` | `black-forest-labs/FLUX.1-schnell` | `HF_TOKEN` | router `hf-inference` or `fal-ai`; no references |
@@ -232,11 +233,11 @@ The dates below are from the official docs, checked 2026-09-25.
 | video | `veo` | `veo-3.1-generate-preview` | `GEMINI_API_KEY` | first/last frame, audio; 4/6/8 s clips (8 s at 1080p) |
 | video | `kling` | `kling-3.0` | `KLING_API_KEY` | first/last frame, native audio, 3–15 s |
 | video | `seedance` | `dreamina-seedance-2-5-260628` | `ARK_API_KEY` | BytePlus ModelArk; first/last frame, audio, 4–30 s |
-| voice | `qwen` · `chatterbox` · `habibi` | local | — | 10 languages · 23 incl. Arabic · Arabic dialects |
+| voice | `qwen` · `chatterbox` · `habibi` | Qwen3-TTS · **Chatterbox Multilingual v3** · Habibi Specialized | — | 10 languages · 23 incl. Arabic (automatic diacritics) · Arabic dialects |
 | voice | `elevenlabs` | `eleven_multilingual_v2` | `ELEVENLABS_API_KEY` (+ voice id) | Arabic supported |
 | voice | `openai` | `gpt-4o-mini-tts` | `OPENAI_API_KEY` | style from `voice.description` |
 | voice | `gemini` | `gemini-3.8-flash-tts` | `GEMINI_API_KEY` | 30 voices; MSA and Egyptian Arabic |
-| music | `local` | ACE-Step 1.5 | — | |
+| music | `local` | ACE-Step 1.5 turbo (XL with `UGC_ACE_CONFIG=acestep-v15-xl-turbo`) | — | |
 | music | `elevenlabs` | `music_v2` | `ELEVENLABS_API_KEY` | `force_instrumental` |
 
 Not offered, on purpose:

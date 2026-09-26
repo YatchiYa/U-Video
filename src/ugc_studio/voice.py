@@ -12,7 +12,8 @@ import numpy as np
 import soundfile as sf
 
 from ugc_studio import asr, phonetics, quality
-from ugc_studio.config import CHATTERBOX_PYTHON, HABIBI_PYTHON, ROOT, TTS_CLONE_MODEL, TTS_DESIGN_MODEL, TTS_PYTHON
+from ugc_studio.config import (CHATTERBOX_PYTHON, CHATTERBOX_T3, HABIBI_PYTHON, ROOT, TTS_CLONE_MODEL, TTS_DESIGN_MODEL,
+                               TTS_PYTHON)
 from ugc_studio.schema import Project
 from ugc_studio.state import State, ref
 from ugc_studio.timeline import VoiceLine
@@ -344,6 +345,7 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
     worker_file = {"qwen": WORKER, "chatterbox": WORKERS / "chatterbox_worker.py",
                    "habibi": WORKERS / "habibi_worker.py"}.get(engine, Path(__file__).parent / "providers" / f"{engine}.py")
     ref_in = {"ref": ref(ref_audio), "ref_text": ref_text, "language": project.language.lower(), "engine": engine,
+              **({"t3": CHATTERBOX_T3} if engine == "chatterbox" and CHATTERBOX_T3 != "v2" else {}),
               "dialect": project.voice.dialect, "worker": file_hash(worker_file)[:12], "post": 2,
               **({"model": project.voice.model, "voice_id": project.voice.voice_id} if cloud else {}),
               **({"candidates": project.voice.candidates} if project.voice.candidates > 1 else {})}  # bump when post-processing changes
@@ -364,6 +366,10 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
             tr = asr.transcribe(str(p), project.language)
         score = max(asr.similarity(written[sid], tr["text"], project.language, names(project)),
                     asr.similarity(lines[sid], tr["text"], project.language, names(project)))
+        other = asr.second_opinion(str(p), project.language)
+        if other is not None:  # both transcripts must agree (the second one tolerates dialect spelling)
+            score = min(score, max(asr.similarity(written[sid], other, project.language, names(project), 0.8),
+                                   asr.similarity(lines[sid], other, project.language, names(project), 0.8)))
         flagged = []
         if phonetics.supported(project.language):
             flagged = [f["word"] for f in phonetics.check(p, lines[sid], project.language)["flagged"]]
@@ -387,7 +393,7 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
         elif engine == "chatterbox":
             _run_worker({"language_id": CHATTERBOX_LANGS[project.language.lower()],
                          "ref_audio": str(ref_audio) if ref_audio else None, "exaggeration": 0.5, "cfg": 0.5,
-                         "out_dir": str(workdir), "lines": batch}, workdir, "chatterbox")
+                         "t3_model": CHATTERBOX_T3, "out_dir": str(workdir), "lines": batch}, workdir, "chatterbox")
         else:
             _run_worker({"dialect": project.voice.dialect, "ref_audio": str(ref_audio), "ref_text": ref_text,
                          "out_dir": str(workdir), "lines": batch}, workdir, "habibi")

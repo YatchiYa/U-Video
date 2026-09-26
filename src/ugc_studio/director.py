@@ -14,7 +14,7 @@ import math
 import re
 from typing import Any
 
-from ugc_studio.config import DIRECTOR_LLM
+from ugc_studio.config import DIRECTOR_4BIT, DIRECTOR_LLM
 from ugc_studio.schema import Brand, Project
 from ugc_studio.styles import STYLES
 
@@ -76,22 +76,39 @@ def site_facts(site: dict) -> str:
 
 
 class Director:
-    def __init__(self, model_id: str = DIRECTOR_LLM):
+    """Local LLM script writer (default Qwen3.5-9B, loaded in 4-bit NF4 so it fits a 12 GB GPU; text-only weights:
+    the vision tower of the checkpoint is skipped by the causal-LM class)."""
+
+    def __init__(self, model_id: str = DIRECTOR_LLM, four_bit: bool = DIRECTOR_4BIT):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.torch = torch
         self.tok = AutoTokenizer.from_pretrained(model_id)
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16, device_map="cuda")
+        kw = {}
+        if four_bit:
+            from transformers import BitsAndBytesConfig
+
+            kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                                                           bnb_4bit_compute_dtype=torch.bfloat16,
+                                                           bnb_4bit_use_double_quant=True)
+        self.model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16, device_map="cuda:0", **kw)
 
     def _chat(self, system: str, user: str, temperature: float) -> str:
         with self.torch.inference_mode():
             msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-            ids = self.tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt", return_dict=True)
+            try:  # hybrid-reasoning models (Qwen3.5, Gemma 4): answer directly, no hidden thinking
+                ids = self.tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt",
+                                                   return_dict=True, enable_thinking=False)
+            except TypeError:
+                ids = self.tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt",
+                                                   return_dict=True)
             ids = {k: v.to(self.model.device) for k, v in ids.items()}
-            out = self.model.generate(**ids, max_new_tokens=3000, do_sample=True, temperature=temperature, top_p=0.9,
-                                      repetition_penalty=1.05)
-        return self.tok.decode(out[0, ids["input_ids"].shape[1]:], skip_special_tokens=True)
+            # Qwen3.5 card, non-thinking: temperature 0.7, top_p 0.8, top_k 20 (no generation_config.json: explicit)
+            out = self.model.generate(**ids, max_new_tokens=3000, do_sample=True, temperature=temperature, top_p=0.8,
+                                      top_k=20, repetition_penalty=1.05)
+        text = self.tok.decode(out[0, ids["input_ids"].shape[1]:], skip_special_tokens=True)
+        return re.sub(r"^\s*<think>.*?</think>\s*", "", text, flags=re.S)  # an empty think block, if echoed
 
     def beats(self, mode: str, brief: str, n: int, shot_s: float, language: str, facts: str = "",
               retries: int = 3) -> dict:

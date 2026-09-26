@@ -5,7 +5,7 @@
 set -e
 UID_="${UGC_UID:-1000}"
 GID_="${UGC_GID:-1000}"
-export HOME=/data/home UV_PYTHON_INSTALL_DIR="$UGC_VENDOR/python" UV_CACHE_DIR="$UGC_VENDOR/.uv-cache"
+export HOME=/data/home UV_PYTHON_INSTALL_DIR="$UGC_VENDOR/python" UV_CACHE_DIR=/tmp/uv-cache  # cache dies with the container
 mkdir -p "$UGC_OUTPUTS" "$UGC_VENDOR" "$HF_HOME" "$HOME"
 for d in "$UGC_VENDOR" "$HF_HOME" "$HOME" "$UGC_OUTPUTS"; do
   [ "$(stat -c %u "$d")" = "$UID_" ] || chown "$UID_:$GID_" "$d"

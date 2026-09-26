@@ -364,6 +364,9 @@ class Studio:
             if speak:
                 heard = asr.transcribe(str(path), p.language, device="cpu")["text"]
                 words = asr.similarity(s.dialogue, heard, p.language, voice_names(p))
+                other = asr.second_opinion(str(path), p.language, device="cpu")
+                if other is not None:
+                    words = min(words, asr.similarity(s.dialogue, other, p.language, voice_names(p), 0.8))
                 ph = phonetics.check(path, s.dialogue, p.language) if use_ph else {"score": 1.0, "flagged": []}
                 r.update(words=words, heard=heard, phon=ph["score"],
                          flagged=[f"{f['word']} /{f['expected']}/ heard /{f['heard']}/" for f in ph["flagged"]])

@@ -46,7 +46,8 @@ def main(job_path):
     texts = [line["text"] for line in job["lines"]]
     if job["language_id"] == "ar" and job.get("tashkeel", True):
         texts = diacritize(texts)
-    model = ChatterboxMultilingualTTS.from_pretrained(device="cuda")
+    # v3 (June 2026): better speaker similarity, fewer hallucinations; UGC_CHATTERBOX_T3=v2 to go back
+    model = ChatterboxMultilingualTTS.from_pretrained(device="cuda", t3_model=job.get("t3_model") or "v3")
     for line, text in zip(job["lines"], texts):
         torch.manual_seed(int(line.get("seed", 7)))
         kw = {"language_id": job["language_id"], "exaggeration": line.get("exaggeration", job.get("exaggeration", 0.5)),

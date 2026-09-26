@@ -1,6 +1,7 @@
 """ACE-Step 1.5 worker. Runs inside vendor/ACE-Step-1.5/.venv. Usage: python music_worker.py job.json
 
-job = {"ace_dir", "caption", "seconds", "bpm"?, "candidates", "seed", "out_dir"}
+job = {"ace_dir", "caption", "seconds", "bpm"?, "candidates", "seed", "out_dir", "config"?}
+config: acestep-v15-turbo (2B, default) | acestep-v15-xl-turbo (4B XL, better audio; downloaded on first use, ~20 GB)
 """
 
 import json
@@ -22,8 +23,11 @@ def main(job_path):
     out = Path(job["out_dir"])
     out.mkdir(parents=True, exist_ok=True)
     dit = AceStepHandler()
-    msg, ok = dit.initialize_service(project_root=str(ace), config_path="acestep-v15-turbo", device="cuda",
-                                     offload_to_cpu=False)
+    config = job.get("config") or "acestep-v15-turbo"
+    xl = "xl" in config  # ACE-Step 1.5 XL (4B DiT): on 12 GB it needs CPU offload + int8 weights
+    msg, ok = dit.initialize_service(project_root=str(ace), config_path=config, device="cuda",
+                                     offload_to_cpu=xl, offload_dit_to_cpu=xl,
+                                     quantization="int8_weight_only" if xl else None)
     if not ok:
         raise SystemExit(f"DiT init failed: {msg}")
     llm = LLMHandler()

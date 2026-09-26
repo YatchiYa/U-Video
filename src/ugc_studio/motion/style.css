@@ -184,3 +184,12 @@ body { font-family: var(--body); color: var(--dark); -webkit-font-smoothing: ant
 .landscape .grid.n2 .fcard span, .landscape .grid.n4 .fcard span { font-size: calc(28 * var(--u)); }
 .landscape .grid.n2 .ic, .landscape .grid.n4 .ic { width: calc(92 * var(--u)); height: calc(92 * var(--u)); border-radius: calc(24 * var(--u)); }
 .landscape .grid.n2 .ic::after, .landscape .grid.n4 .ic::after { inset: calc(22 * var(--u)); }
+/* feature cards in portrait: few cards -> bigger cards that fill the frame (TikTok/Reels read on a phone) */
+.portrait .grid.n2, .portrait .grid.n3, .portrait .grid.n4, .portrait .grid.n5 { top: calc(520 * var(--u)); gap: calc(34 * var(--u)); }
+.portrait .grid.n2 .fcard, .portrait .grid.n3 .fcard, .portrait .grid.n4 .fcard, .portrait .grid.n5 .fcard { padding: calc(40 * var(--u)) calc(40 * var(--u)); gap: calc(30 * var(--u)); }
+.portrait .grid.n2 .fcard b, .portrait .grid.n3 .fcard b, .portrait .grid.n4 .fcard b { font-size: calc(54 * var(--u)); }
+.portrait .grid.n5 .fcard b { font-size: calc(46 * var(--u)); }
+.portrait .grid.n2 .fcard span, .portrait .grid.n3 .fcard span, .portrait .grid.n4 .fcard span, .portrait .grid.n5 .fcard span { font-size: calc(32 * var(--u)); }
+.portrait .grid.n2 .ic, .portrait .grid.n3 .ic, .portrait .grid.n4 .ic, .portrait .grid.n5 .ic { width: calc(104 * var(--u)); height: calc(104 * var(--u)); border-radius: calc(28 * var(--u)); }
+.portrait .grid.n2 .ic::after, .portrait .grid.n3 .ic::after, .portrait .grid.n4 .ic::after, .portrait .grid.n5 .ic::after { inset: calc(25 * var(--u)); }
+.portrait .feat-title .headline { font-size: calc(96 * var(--u)); }

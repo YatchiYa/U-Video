@@ -59,8 +59,11 @@ def build(project: Project, state: State, workdir: Path, seconds: float) -> Path
     from ugc_studio import providers
     from ugc_studio.images import provider_tag
 
+    from ugc_studio.config import ACE_CONFIG
+
     inputs = {"caption": caption, "seconds": round(seconds, 1), "bpm": m.bpm, "seed": project.seed,
-              **provider_tag(project, "music")}
+              **provider_tag(project, "music"),
+              **({"ace": ACE_CONFIG} if ACE_CONFIG != "acestep-v15-turbo" else {})}
     out = workdir / "bed.wav"
     if state.fresh("music", inputs):
         return out

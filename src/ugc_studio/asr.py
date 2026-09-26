@@ -8,7 +8,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from ugc_studio.config import ASR_MODEL
+from ugc_studio.config import ARABIC_ASR, ASR_MODEL
 
 LANG_CODES = {"english": "english", "french": "french", "spanish": "spanish", "german": "german", "italian": "italian",
               "portuguese": "portuguese", "arabic": "arabic", "russian": "russian", "japanese": "japanese",
@@ -25,10 +25,41 @@ def _pipe(device: str | None = None):
                     dtype=torch.float16 if device == "cuda" else torch.float32, device=device)
 
 
+@lru_cache(maxsize=1)
+def _qwen_asr(device: str):
+    import torch
+    from transformers import AutoModelForMultimodalLM, AutoProcessor
+
+    proc = AutoProcessor.from_pretrained(ARABIC_ASR)
+    model = AutoModelForMultimodalLM.from_pretrained(
+        ARABIC_ASR, dtype=torch.float16 if device == "cuda" else torch.float32).to(device).eval()
+    return proc, model
+
+
+def second_opinion(path_or_audio, language: str | None, device: str | None = None) -> str | None:
+    """A second, more literal transcript for languages where Whisper is weak (Arabic: Qwen3-ASR). Whisper tends to
+    "hear" the expected word; the speech gates require both transcripts to agree. None when not applicable."""
+    if (language or "").lower() != "arabic" or ARABIC_ASR.lower() == "whisper":
+        return None
+    import torch
+
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    audio = load_audio(path_or_audio, 16000) if isinstance(path_or_audio, str) else path_or_audio
+    if audio.size < 4000:
+        return ""
+    proc, model = _qwen_asr(device)
+    inp = proc.apply_transcription_request(audio=audio, language="ar")
+    inp = {k: (v.to(device, dtype=model.dtype) if v.is_floating_point() else v.to(device)) for k, v in inp.items()}
+    with torch.inference_mode():
+        out = model.generate(**inp, max_new_tokens=256, do_sample=False)
+    return proc.decode(out[0][inp["input_ids"].shape[1]:], return_format="transcription_only").strip()
+
+
 def unload() -> None:
     import torch
 
     _pipe.cache_clear()
+    _qwen_asr.cache_clear()
     torch.cuda.empty_cache()
 
 
@@ -137,8 +168,11 @@ def _collapse_names(words: list[str], names: list[list[str]]) -> list[str]:
     return words
 
 
-def similarity(expected: str, heard: str, language: str | None = None, names: list[str] = ()) -> float:
-    """Word accuracy of `heard` against `expected`; numbers and brand-name spellings are not counted as errors."""
+def similarity(expected: str, heard: str, language: str | None = None, names: list[str] = (),
+               spelling: float = 1.0) -> float:
+    """Word accuracy of `heard` against `expected`; numbers and brand-name spellings are not counted as errors.
+    `spelling` < 1: a word also counts when that share of its letters match (dialects have no fixed spelling:
+    Algerian "بزاف" is also written "بالزاف")."""
     groups = [norm_words(n) for n in names if norm_words(n)]
     e = _collapse_names(_spell_numbers(norm_words(expected), language), groups)
     h = _collapse_names(_spell_numbers(norm_words(heard), language), groups)
@@ -148,6 +182,9 @@ def similarity(expected: str, heard: str, language: str | None = None, names: li
         # a word split or joined differently ("ويخرجلك" / "ويخرج لك", "aujourd'hui") is the same speech
         if op == "equal" or (op == "replace" and "".join(e[i1:i2]) == "".join(h[j1:j2])):
             matched += (i2 - i1) + (j2 - j1)
+        elif op == "replace" and spelling < 1.0 and (i2 - i1) == (j2 - j1):
+            matched += 2 * sum(SequenceMatcher(None, a, b, autojunk=False).ratio() >= spelling
+                               for a, b in zip(e[i1:i2], h[j1:j2]))
     return matched / max(1, len(e) + len(h))
 
 

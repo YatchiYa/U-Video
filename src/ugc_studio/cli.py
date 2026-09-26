@@ -176,14 +176,18 @@ def setup() -> None:
         steps.append(("voice env", ["uv", "venv", "-q", "--python-preference", "only-managed", "--python", "3.12", ".venv"], config.VENDOR_DIR / "tts"))
         steps.append(("voice packages", ["uv", "pip", "install", "--python", ".venv/bin/python", "qwen-tts",
                                          "soundfile"], config.VENDOR_DIR / "tts"))
+    # Multilingual v3 is only on GitHub so far (PyPI 0.1.7 ships v2): pinned commit
+    CHATTERBOX_PKG = "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox@5de7a54"
     chatterbox_ok = config.CHATTERBOX_PYTHON.is_file() and subprocess.run(
-        [str(config.CHATTERBOX_PYTHON), "-c", "import chatterbox, catt_tashkeel"], capture_output=True).returncode == 0
+        [str(config.CHATTERBOX_PYTHON), "-c", "import chatterbox, catt_tashkeel, inspect; from chatterbox.mtl_tts import "
+         "ChatterboxMultilingualTTS as C; assert 't3_model' in str(inspect.signature(C.from_pretrained))"],
+        capture_output=True).returncode == 0
     if not chatterbox_ok:  # Arabic (+ automatic diacritics) and 22 more narration languages (MIT)
         (config.VENDOR_DIR / "chatterbox").mkdir(parents=True, exist_ok=True)
         if not config.CHATTERBOX_PYTHON.is_file():
             steps.append(("arabic voice env", ["uv", "venv", "-q", "--python-preference", "only-managed", "--python",
                                                "3.11", ".venv"], config.VENDOR_DIR / "chatterbox"))
-        steps.append(("arabic voice packages", ["uv", "pip", "install", "--python", ".venv/bin/python", "chatterbox-tts",
+        steps.append(("arabic voice packages", ["uv", "pip", "install", "--python", ".venv/bin/python", CHATTERBOX_PKG,
                                                 "soundfile", "setuptools<81", "catt-tashkeel"], config.VENDOR_DIR / "chatterbox"))
     if not config.HABIBI_PYTHON.is_file():  # Arabic dialects (Apache-2.0 specialized checkpoints)
         (config.VENDOR_DIR / "habibi").mkdir(parents=True, exist_ok=True)
@@ -212,22 +216,55 @@ def setup() -> None:
     console.print("Run [bold]ugc models download[/] for the model weights, then [bold]ugc doctor[/].")
 
 
+MODEL_SETS = {
+    "ltx": "LTX-2.5 distilled video (~71 GB, HF_TOKEN + license)",
+    "flux": "FLUX.2 klein 4B keyframes, fallback (~16 GB)",
+    "whisper": "Whisper large-v3-turbo speech checks (~1.6 GB)",
+    "director": "Qwen3.5-9B script writer (~19 GB)",
+    "arabic": "Qwen3-ASR-1.7B: second opinion for Arabic speech checks (~4 GB)",
+    "qwen-edit": "Qwen-Image-Edit-2511 GGUF Q4 + Lightning LoRA: identity keyframes (~31 GB)",
+    "zimage": "Z-Image Turbo: photoreal text-to-image keyframes (~33 GB, optional)",
+}
+DEFAULT_SETS = ("ltx", "flux", "whisper", "director", "arabic", "qwen-edit")
+
+
 @models_app.command("download")
-def models_download(only: Annotated[Optional[str], typer.Option(help="ltx | flux | whisper")] = None) -> None:
-    """Download model weights (LTX-2.5 needs HF_TOKEN in .env and the license accepted)."""
+def models_download(only: Annotated[Optional[str], typer.Option(
+        help="Comma list of: " + ", ".join(MODEL_SETS) + " (default: all but zimage)")] = None) -> None:
+    """Download model weights (LTX-2.5 needs HF_TOKEN in .env and the license accepted). Voice and music models
+    download on first use; ACE-Step XL music: set UGC_ACE_CONFIG=acestep-v15-xl-turbo."""
     from huggingface_hub import hf_hub_download, snapshot_download
 
-    if only in (None, "flux"):
-        console.print("[bold]FLUX.2 klein 4B[/] (~16 GB)")
-        snapshot_download(config.FLUX_REPO, local_dir=config.FLUX_DIR, ignore_patterns=["flux-2-klein-4b.safetensors", "*.jpg"])
-    if only in (None, "whisper"):
-        console.print("[bold]Whisper large-v3-turbo[/] (~1.6 GB)")
-        snapshot_download(config.ASR_MODEL, allow_patterns=["*.json", "*.safetensors", "*.txt"])
-    if only in (None, "ltx"):
-        console.print("[bold]LTX-2.5 distilled[/] (~71 GB)")
-        for rel in config.LTX_FILES.values():
-            hf_hub_download(config.LTX_REPO, rel, local_dir=config.LTX_DIR)
-    console.print("[green]Done.[/] Voice and music models download automatically on first use.")
+    sets = [s.strip() for s in only.split(",")] if only else list(DEFAULT_SETS)
+    unknown = [s for s in sets if s not in MODEL_SETS]
+    if unknown:
+        _fail(f"unknown model set(s) {unknown}: {', '.join(MODEL_SETS)}")
+    for s in sets:
+        console.print(f"[bold]{s}[/]: {MODEL_SETS[s]}")
+        if s == "flux":
+            snapshot_download(config.FLUX_REPO, local_dir=config.FLUX_DIR,
+                              ignore_patterns=["flux-2-klein-4b.safetensors", "*.jpg"])
+        elif s == "whisper":
+            snapshot_download(config.ASR_MODEL, allow_patterns=["*.json", "*.safetensors", "*.txt"])
+        elif s == "ltx":
+            for rel in config.LTX_FILES.values():
+                hf_hub_download(config.LTX_REPO, rel, local_dir=config.LTX_DIR)
+        elif s == "director":
+            snapshot_download(config.DIRECTOR_LLM)
+        elif s == "arabic":
+            snapshot_download(config.ARABIC_ASR)
+        elif s == "qwen-edit":
+            from ugc_studio.providers.local import QwenEditImage as Q
+
+            snapshot_download(Q.GGUF[0], allow_patterns=["*Q4_K_M*.gguf"])
+            hf_hub_download(*Q.LORA)
+            snapshot_download(Q.REPO, allow_patterns=["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*",
+                                                      "processor/*", "vae/*", "transformer/config.json"])
+        elif s == "zimage":
+            from ugc_studio.providers.local import ZImageImage
+
+            snapshot_download(ZImageImage.REPO)
+    console.print("[green]Done.[/] Run [bold]ugc providers[/] to see which engines are used.")
 
 
 # ====================================================================== create

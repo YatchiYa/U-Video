@@ -20,7 +20,8 @@ from omegaconf import OmegaConf
 from habibi_tts.infer.utils_infer import infer_process
 from habibi_tts.model.utils import dialect_id_map
 
-STEPS = {"MSA": 200000, "SAU": 200000, "UAE": 100000, "ALG": 100000, "IRQ": 100000, "EGY": 100000, "MAR": 100000}
+# Only the Apache-2.0 Specialized checkpoints. SAU, UAE and Unified are CC-BY-NC-SA: never loaded.
+STEPS = {"MSA": 200000, "ALG": 100000, "IRQ": 100000, "EGY": 100000, "MAR": 100000}
 
 
 def main(job_path):
@@ -28,6 +29,8 @@ def main(job_path):
     out = Path(job["out_dir"])
     out.mkdir(parents=True, exist_ok=True)
     d = job["dialect"]
+    if d not in STEPS:
+        raise SystemExit(f"dialect {d!r} is not available for commercial use (allowed: {', '.join(STEPS)})")
     ckpt = str(cached_path(f"hf://SWivid/Habibi-TTS/Specialized/{d}/model_{STEPS[d]}.safetensors"))
     vocab = str(cached_path(f"hf://SWivid/Habibi-TTS/Specialized/{d}/vocab.txt"))
     cfg = OmegaConf.load(str(files("f5_tts").joinpath("configs/F5TTS_v1_Base.yaml")))

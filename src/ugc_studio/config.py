@@ -37,8 +37,10 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(ROOT / ".env")
 
 def env(name: str, default: str) -> str:
-    """UGC_* setting: the environment (or .env) wins over the built-in default. Empty values fall back too."""
-    return os.environ.get(name) or default
+    """UGC_* setting: the environment (or .env) wins over the built-in default. Empty values fall back too, and so
+    do values that are really a comment (`KEY=   # note` read by a parser that keeps inline comments)."""
+    value = (os.environ.get(name) or "").strip()
+    return default if not value or value.startswith("#") else value
 
 
 MODELS_DIR = Path(env("UGC_MODELS", str(ROOT / "models")))
@@ -63,8 +65,12 @@ LTX_OFFLOAD = env("UGC_LTX_OFFLOAD", "cpu")                  # cpu | none
 FLUX_DIR = Path(env("UGC_FLUX_DIR", str(MODELS_DIR / "flux2-klein-4b")))
 FLUX_REPO = env("UGC_FLUX_REPO", "black-forest-labs/FLUX.2-klein-4B")
 FLUX_STEPS = int(env("UGC_FLUX_STEPS", "4"))
-DIRECTOR_LLM = env("UGC_DIRECTOR_LLM", "Qwen/Qwen3-4B-Instruct-2507")
+DIRECTOR_LLM = env("UGC_DIRECTOR_LLM", "Qwen/Qwen3.5-9B")          # script writer (Apache-2.0)
+DIRECTOR_4BIT = env("UGC_DIRECTOR_4BIT", "1") == "1"                # NF4: a 9B model in ~6 GB of VRAM
 ASR_MODEL = env("UGC_ASR_MODEL", "openai/whisper-large-v3-turbo")
+# Arabic speech checks: Qwen3-ASR (Apache-2.0, far better than Whisper on Arabic) as a second opinion next to
+# Whisper (which keeps the word timings). UGC_ARABIC_ASR=whisper turns the second opinion off.
+ARABIC_ASR = env("UGC_ARABIC_ASR", "Qwen/Qwen3-ASR-1.7B-hf")
 PHONEME_MODEL = env("UGC_PHONEME_MODEL", "facebook/wav2vec2-xlsr-53-espeak-cv-ft")
 CLIP_MODEL = env("UGC_CLIP_MODEL", "openai/clip-vit-large-patch14")
 DINO_MODEL = env("UGC_DINO_MODEL", "facebook/dinov2-base")
@@ -72,9 +78,11 @@ TTS_PYTHON = VENDOR_DIR / "tts" / ".venv" / "bin" / "python"
 TTS_DESIGN_MODEL = env("UGC_TTS_DESIGN_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
 TTS_CLONE_MODEL = env("UGC_TTS_CLONE_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
 CHATTERBOX_PYTHON = VENDOR_DIR / "chatterbox" / ".venv" / "bin" / "python"
+CHATTERBOX_T3 = env("UGC_CHATTERBOX_T3", "v3")  # Chatterbox Multilingual text-to-token model: v3 | v2
 HABIBI_PYTHON = VENDOR_DIR / "habibi" / ".venv" / "bin" / "python"
 ACE_DIR = Path(env("UGC_ACE_DIR", str(VENDOR_DIR / "ACE-Step-1.5")))
 ACE_PYTHON = ACE_DIR / ".venv" / "bin" / "python"
+ACE_CONFIG = env("UGC_ACE_CONFIG", "acestep-v15-turbo")  # acestep-v15-xl-turbo = XL (better audio, ~20 GB download)
 
 # LTX-2.5 distilled: frames must be 8k+1; 121 frames is the trained maximum per generation.
 MAX_SHOT_FRAMES = 121

@@ -17,7 +17,7 @@
 - **Your real product on screen.** App screens are composited onto AI-filmed phones with perspective tracking. Device mockups, feature cards and endcards come from an HTML/GSAP motion engine, with right-to-left support for Arabic.
 - **An editor, not a black box.** Change one voice-over line, re-voice everything, move lines on the timeline, add sounds, shape the music. The mix rebuilds in minutes without re-rendering video. The CLI, an HTTP API and a web app all do the same things.
 - **Local-first, provider-pluggable.**
-  - **Local by default:** LTX-2.5 video with native audio and lip-sync, FLUX.2 klein images, Qwen3-TTS / Chatterbox / Habibi (Arabic dialects) narration, ACE-Step music.
+  - **Local by default:** LTX-2.5 video with native audio and lip-sync, Qwen-Image-Edit-2511 identity keyframes (FLUX.2 klein fallback), Qwen3.5-9B script writer, Qwen3-TTS / Chatterbox v3 / Habibi (Arabic dialects) narration, Qwen3-ASR Arabic checks, ACE-Step music.
   - **Cloud when you want:** Veo 3.1, Kling 3.0 or Seedance 2.5 video; OpenAI or Gemini images; ElevenLabs, OpenAI or Gemini voices and music.
   - **One switch:** a line in `.env` or `project.yaml`.
 - **Multilingual:** English, French, Spanish… and Arabic, including dialects, diacritized for correct pronunciation.

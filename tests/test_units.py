@@ -426,3 +426,65 @@ def test_voice_commands_never_render_video(tmp_path):
     assert r.exit_code == 1 and "needs new video" in r.output.replace("\n", " ")
     assert "Good evening" in (tmp_path / "project.yaml").read_text()  # the text change itself is saved
     assert (tmp_path / "project.yaml.bak").is_file()
+
+
+def test_dialect_spelling_tolerance_is_opt_in_and_word_by_word():
+    from ugc_studio.asr import similarity
+
+    assert similarity("الدوسيات بزاف والوقت قليل", "الدوسيات بالزاف والوقت قليل", "Arabic") < 1.0   # strict
+    assert similarity("الدوسيات بزاف والوقت قليل", "الدوسيات بالزاف والوقت قليل", "Arabic", spelling=0.8) == 1.0
+    assert similarity("الدوسيات بزاف والوقت قليل", "الدوسيات والوقت قليل", "Arabic", spelling=0.8) < 1.0  # missing word
+
+
+def test_second_opinion_only_for_arabic(monkeypatch):
+    import ugc_studio.asr as asr_mod
+
+    assert asr_mod.second_opinion("x.wav", "French") is None
+    monkeypatch.setattr(asr_mod, "ARABIC_ASR", "whisper")
+    assert asr_mod.second_opinion("x.wav", "Arabic") is None
+
+
+def test_local_keyframes_route_to_the_best_available_engine(monkeypatch):
+    import ugc_studio.providers.local as loc
+
+    made = []
+
+    class Fake:
+        def __init__(self, *a, **k):
+            made.append(type(self).__name__)
+
+        def generate(self, *a, **k):
+            return "img"
+
+        def close(self):
+            made.append("close")
+
+    for n in ("FluxImage", "QwenEditImage", "ZImageImage"):
+        fake = type(n, (Fake,), {"available": classmethod(lambda cls: True)})
+        monkeypatch.setattr(loc, n, fake)
+    monkeypatch.delenv("UGC_KEYFRAME_EDIT", raising=False)
+    monkeypatch.delenv("UGC_KEYFRAME_T2I", raising=False)
+    r = loc.LocalImage()
+    assert r.route == {"refs": "qwen-edit", "text": "zimage"}
+    r.generate("p", 512, 512, 1, references=["a.png"])
+    r.generate("p", 512, 512, 1, references=["b.png"])   # same engine: not reloaded
+    r.generate("p", 512, 512, 1)                          # text only: switch engine (the other is closed first)
+    assert made == ["QwenEditImage", "close", "ZImageImage"]
+    monkeypatch.setattr(loc.QwenEditImage, "available", classmethod(lambda cls: False))
+    monkeypatch.setattr(loc.ZImageImage, "available", classmethod(lambda cls: False))
+    assert loc.LocalImage().route == {"refs": "flux", "text": "flux"}
+    monkeypatch.setenv("UGC_KEYFRAME_EDIT", "flux")
+    assert loc.LocalImage().route["refs"] == "flux"
+
+
+def test_env_example_is_safe_for_docker_compose():
+    """Compose keeps an inline comment after an empty value (`KEY=   # note` -> "# note"): comments on own lines."""
+    import re
+
+    from ugc_studio.config import ROOT, env
+
+    lines = (ROOT / ".env.example").read_text().splitlines()
+    assert not [ln for ln in lines if re.match(r"^[A-Z0-9_]+=\S*\s+#", ln)]
+    import os
+    os.environ["UGC_TEST_COMMENT"] = "# [4]"
+    assert env("UGC_TEST_COMMENT", "4") == "4"

@@ -24,6 +24,9 @@ class Calls:
 @pytest.fixture
 def calls(monkeypatch):
     c = Calls()
+    # keyframes always go through the (stubbed) FLUX path, even when bigger local models are downloaded
+    monkeypatch.setenv("UGC_KEYFRAME_EDIT", "flux")
+    monkeypatch.setenv("UGC_KEYFRAME_T2I", "flux")
 
     class StubKeyframes:
         def __init__(self, steps=4, source=None):
@@ -110,6 +113,7 @@ def calls(monkeypatch):
     import ugc_studio.render as rd
 
     monkeypatch.setattr(asr_mod, "transcribe", stub_transcribe)
+    monkeypatch.setattr(asr_mod, "second_opinion", lambda *a, **k: None)
     import ugc_studio.phonetics as ph_mod
 
     monkeypatch.setattr(ph_mod, "check", lambda path, script, language: {"score": 1.0, "flagged": [], "heard": ""})
