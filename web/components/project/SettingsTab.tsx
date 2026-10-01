@@ -42,7 +42,7 @@ export function SettingsTab() {
                 {prov.data.map((r) => {
                   const keys = Object.entries(r.keys);
                   const missing = keys.filter(([, ok]) => !ok).map(([k]) => k);
-                  const local = r.provider === "local" || r.provider === "auto" || ["qwen", "chatterbox", "habibi"].includes(r.provider);
+                  const local = r.provider === "local" || r.provider === "auto" || ["qwen", "chatterbox", "habibi", "higgs"].includes(r.provider);
                   return (
                     <tr key={r.kind}>
                       <td className="py-3 pr-4 font-semibold">{t(`cap.${r.kind}` as Key)}</td>

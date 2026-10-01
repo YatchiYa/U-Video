@@ -14,11 +14,15 @@ gated model on Hugging Face).
 | **Qwen3-4B** (script director), **Qwen3-TTS** (narration) | [Apache-2.0](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) | Yes | Only clone voices you have the rights to. |
 | **Whisper large-v3-turbo** (speech check) | [MIT](https://huggingface.co/openai/whisper-large-v3-turbo) | Yes | — |
 | **Qwen3.5-9B** (script writer), **Qwen3-ASR-1.7B** (Arabic speech check) | [Apache-2.0](https://huggingface.co/Qwen/Qwen3.5-9B) | Yes | — |
-| **Qwen-Image-Edit-2511** (identity keyframes) + **Lightning LoRA** (lightx2v) + unsloth GGUF | [Apache-2.0](https://huggingface.co/Qwen/Qwen-Image-Edit-2511) | Yes | Don't use Qwen-Image-2.1 (research license). |
+| **Qwen-Image-Edit-2511** (identity keyframes) + **Lightning LoRA** (lightx2v) + unsloth GGUF | [Apache-2.0](https://huggingface.co/Qwen/Qwen-Image-Edit-2511) | Yes | — |
+| **Qwen-Image-2.1** (best keyframes, optional: `ugc models download --only qwen21`) | Qwen research license | **No** | Personal and research use only. For client work, set `UGC_KEYFRAME_EDIT=qwen-edit` and `UGC_KEYFRAME_T2I=zimage`, or don't install it. |
 | **Z-Image Turbo** (optional keyframes) | [Apache-2.0](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Yes | — |
 | **Chatterbox** Multilingual v3 (Arabic and 22 other languages) | [MIT](https://github.com/resemble-ai/chatterbox) | Yes | Outputs carry an inaudible Perth watermark: keep it. |
+| **Higgs TTS 3** (optional voice: `voice.engine: higgs`) | [Boson Higgs TTS 3 Research and Non-Commercial License](https://huggingface.co/bosonai/higgs-tts-3-4b) | **No** (except its creator grant) | Personal use. Its *creator use grant* allows monetized videos and social content **with attribution**: "This audio was created with Boson AI's Higgs Audio — https://www.boson.ai/higgs-audio". No ads or client work without a commercial license from Boson AI. |
 | **Habibi-TTS** (Arabic dialects) | [Card](https://huggingface.co/SWivid/Habibi-TTS): ALG/EGY/IRQ/MAR/MSA "Apache-2.0"; Unified/SAU/UAE CC-BY-NC-SA (never loaded by UGC Studio) | **Uncertain** | The Specialized models are fine-tuned from the F5-TTS base, which is [CC-BY-NC](https://github.com/SWivid/F5-TTS#license). The maintainers haven't answered [the commercial-use question](https://github.com/SWivid/Habibi-TTS/issues/10). UGC Studio warns on every Habibi run. **For client work, use Chatterbox or a cloud voice, or get written confirmation from the authors.** UGC Studio never uses the Unified checkpoint. |
 | **ACE-Step 1.5** music (turbo and XL) | [MIT](https://github.com/ace-step/ACE-Step-1.5) | Yes | Avoid prompts that imitate a protected artist or style. |
+| **Stable Audio 3 Medium** (optional music) | [Stability AI Community License](https://stability.ai/license) + Gemma Terms (T5Gemma text encoder) | **Yes, under $1M annual revenue** | Gated on Hugging Face. Above $1M revenue, an Enterprise license from Stability AI. |
+| **Audiobox Aesthetics** (music judge) | CC-BY-4.0 | Yes | Used only to rate candidates. |
 | **CATT** Arabic diacritization | [Apache-2.0](https://github.com/abjadai/catt) | Yes | — |
 | **wav2vec2-xlsr-53-espeak** (phoneme check) | [Apache-2.0](https://huggingface.co/facebook/wav2vec2-xlsr-53-espeak-cv-ft) | Yes | — |
 | **CLIP ViT-L/14**, **DINOv2** (image judges) | MIT, [Apache-2.0](https://huggingface.co/facebook/dinov2-base) | Yes | Used only for internal quality checks. |
@@ -47,4 +51,4 @@ When you switch a capability to a cloud provider, that provider's terms govern t
 4. Arabic dialect narration: use Chatterbox (MSA) or a cloud voice until Habibi's commercial status is confirmed.
 5. Real brands, logos, places: have the rights. UGC Studio's prompts already ask for unbranded devices.
 
-Not used, because their weights are non-commercial: OmniVoice (CC-BY-NC), FLUX.2 dev and klein 9B, Qwen-Image-2.1, SQUIM subjective MOS, the Unified, SAU and UAE Habibi checkpoints, and the MMS alignment models.
+Qwen-Image-2.1 and Higgs TTS 3 are the non-commercial models UGC Studio can use, and only when you install them and select them yourself. Not used, because their weights are non-commercial: OmniVoice (CC-BY-NC), FLUX.2 dev and klein 9B, SQUIM subjective MOS, the Unified, SAU and UAE Habibi checkpoints, and the MMS alignment models.

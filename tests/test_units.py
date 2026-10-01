@@ -378,6 +378,101 @@ def test_best_sounding_take_with_every_word_right_is_kept(tmp_path, monkeypatch)
     assert take_of(tmp_path / "voice" / "a.wav") == "a.take2"
 
 
+def test_higgs_clones_the_arabic_reference_and_varies_temperature(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import numpy as np
+    import soundfile as sf
+
+    import ugc_studio.asr as asr_mod
+    import ugc_studio.phonetics as ph_mod
+    import ugc_studio.voice as v_mod
+    from ugc_studio.schema import Project
+    from ugc_studio.state import State
+
+    line = "مساعدك القانوني"
+    p = Project.model_validate({"title": "t", "language": "Arabic", "voice": {"engine": "higgs"},
+                                "scenes": [{"id": "a", "kind": "title", "voiceover": line}]})
+    jobs = []
+
+    def fake_worker(job, workdir, engine="qwen"):
+        jobs.append((engine, job))
+        Path(job["out_dir"]).mkdir(parents=True, exist_ok=True)
+        for item in job["lines"]:
+            sf.write(Path(job["out_dir"]) / f"{item['id']}.wav", np.full(24000, 0.1, np.float32), 24000)
+
+    # the first Higgs take misses a word: a retake with another temperature
+    monkeypatch.setattr(v_mod, "_run_worker", fake_worker)
+    monkeypatch.setattr(asr_mod, "transcribe", lambda path, language=None, **k: (
+        lambda t: {"text": t, "words": [{"w": w, "t0": 0.1 * i, "t1": 0.1 * i + 0.08} for i, w in enumerate(t.split())]}
+    )("مساعد" if len(jobs) == 2 and "ref_ar" not in str(path) else line))
+    monkeypatch.setattr(ph_mod, "supported", lambda language: False)
+    monkeypatch.setattr(v_mod, "cut_tail", lambda *a, **k: False)
+    monkeypatch.setattr(asr_mod, "second_opinion", lambda *a, **k: None)
+    v_mod.build(p, State(tmp_path), tmp_path / "voice")
+    assert [e for e, _ in jobs] == ["chatterbox", "higgs", "higgs"]  # reference by Chatterbox, then cloned
+    assert jobs[1][1]["ref_audio"].endswith("ref_ar.wav") and jobs[1][1]["ref_text"] == v_mod.AR_REF_TEXT
+    assert jobs[1][1]["lines"][0]["temperature"] != jobs[2][1]["lines"][0]["temperature"]
+
+
+def test_higgs_is_the_automatic_arabic_voice_once_installed(monkeypatch):
+    import ugc_studio.voice as v_mod
+    from ugc_studio.schema import Project
+
+    def engine(language, **voice):
+        return v_mod.pick_engine(Project.model_validate({"title": "t", "language": language, "voice": voice,
+                                                         "scenes": [{"id": "a", "kind": "title"}]}))
+
+    monkeypatch.setattr(v_mod, "higgs_available", lambda: False)
+    assert (engine("Arabic"), engine("French"), engine("Hindi")) == ("chatterbox", "qwen", "chatterbox")
+    monkeypatch.setattr(v_mod, "higgs_available", lambda: True)
+    assert (engine("Arabic"), engine("French"), engine("Arabic", dialect="ALG")) == ("higgs", "qwen", "habibi")
+    assert engine("Vietnamese") == "higgs"
+
+
+def test_music_candidates_from_both_engines_and_the_listener_model_picks(tmp_path, monkeypatch):
+    import numpy as np
+    import soundfile as sf
+
+    import ugc_studio.music as music_mod
+    import ugc_studio.providers.local as local
+    from ugc_studio.schema import Project
+    from ugc_studio.state import State
+
+    def fake(amp):
+        def generate(self, caption, seconds, bpm, seed, candidates, out_dir, first=0):
+            out_dir.mkdir(parents=True, exist_ok=True)
+            start = first if first else len(list(out_dir.glob("cand*.wav")))
+            for k in range(candidates):
+                t = np.arange(int(seconds * 8000)) / 8000
+                sf.write(out_dir / f"cand{start + k}.wav", amp * np.sin(2 * np.pi * 220 * t).astype(np.float32), 8000)
+        return generate
+
+    monkeypatch.setattr(local.AceMusic, "__init__", lambda self, model=None: None)
+    monkeypatch.setattr(local.AceMusic, "generate", fake(0.3))
+    monkeypatch.setattr(local.StableAudioMusic, "available", classmethod(lambda cls: True))
+    monkeypatch.setattr(local.StableAudioMusic, "generate", fake(0.5))
+    monkeypatch.setattr(music_mod, "aesthetics", lambda paths: {
+        str(p): {"CE": 8.0 if p.name == "cand3.wav" else 7.0, "CU": 8, "PC": 5, "PQ": 8} for p in paths})
+    p = Project.model_validate({"title": "t", "scenes": [{"id": "a", "kind": "title"}]})
+    st = State(tmp_path)
+    out = music_mod.build(p, st, tmp_path / "music", 2.0)
+    rec = st.get("music")
+    assert sorted(rec["scores"]) == ["cand0.wav", "cand1.wav", "cand2.wav", "cand3.wav"]  # 2 ACE-Step + 2 Stable Audio
+    assert rec["chosen"] == "cand3.wav" and out.is_file()
+
+
+def test_quality_override_is_for_one_render_only(tmp_path):
+    from ugc_studio.engine import Studio
+
+    (tmp_path / "project.yaml").write_text('title: t\naspect: "9:16"\nquality: tv\nscenes:\n  - {id: a, kind: title}\n')
+    assert (Studio(tmp_path).res.width, Studio(tmp_path).res.height) == (1088, 1920)
+    social = Studio(tmp_path, quality="high")
+    assert (social.res.width, social.res.height) == (704, 1280) and social.canvas.height == 1920  # 720p shots, 1080p edit
+    social.save_project()
+    assert "quality: tv" in (tmp_path / "project.yaml").read_text()
+
+
 def test_dotenv_example_parses_to_clean_values():
     from ugc_studio.config import ROOT, parse_dotenv
 
@@ -462,6 +557,7 @@ def test_local_keyframes_route_to_the_best_available_engine(monkeypatch):
     for n in ("FluxImage", "QwenEditImage", "ZImageImage"):
         fake = type(n, (Fake,), {"available": classmethod(lambda cls: True)})
         monkeypatch.setattr(loc, n, fake)
+    monkeypatch.setattr(loc.Qwen21Image, "available", classmethod(lambda cls: False))
     monkeypatch.delenv("UGC_KEYFRAME_EDIT", raising=False)
     monkeypatch.delenv("UGC_KEYFRAME_T2I", raising=False)
     r = loc.LocalImage()
@@ -475,6 +571,9 @@ def test_local_keyframes_route_to_the_best_available_engine(monkeypatch):
     assert loc.LocalImage().route == {"refs": "flux", "text": "flux"}
     monkeypatch.setenv("UGC_KEYFRAME_EDIT", "flux")
     assert loc.LocalImage().route["refs"] == "flux"
+    monkeypatch.delenv("UGC_KEYFRAME_EDIT", raising=False)
+    monkeypatch.setattr(loc.Qwen21Image, "available", classmethod(lambda cls: True))
+    assert loc.LocalImage().route == {"refs": "qwen21", "text": "qwen21"}  # one engine for every frame
 
 
 def test_env_example_is_safe_for_docker_compose():

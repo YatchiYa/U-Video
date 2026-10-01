@@ -9,7 +9,7 @@ export type Mode = "ugc" | "influencer" | "faceless" | "promo";
 export type Aspect = "9:16" | "16:9" | "1:1" | "4:5";
 export type Quality = "draft" | "standard" | "high" | "tv";
 export type SceneKind = "shot" | "clip" | "image" | "title" | "screen" | "devices" | "features" | "endcard";
-export type VoiceEngine = "auto" | "qwen" | "chatterbox" | "habibi" | "elevenlabs" | "openai" | "gemini";
+export type VoiceEngine = "auto" | "qwen" | "chatterbox" | "habibi" | "higgs" | "elevenlabs" | "openai" | "gemini";
 export type Dialect = "MSA" | "ALG" | "EGY" | "IRQ" | "MAR";
 export type ExportFormat = "tv" | "web" | "vertical" | "square" | "portrait" | "cover";
 export type FixMode = "auto" | "interpolate" | "freeze" | "retake" | "reshoot";
@@ -17,7 +17,7 @@ export type JobKind = "render" | "mix" | "create" | "persona" | "image" | "expor
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 export const TERMINAL: JobStatus[] = ["done", "failed", "cancelled"];
-export const VOICE_ENGINES: VoiceEngine[] = ["auto", "qwen", "chatterbox", "habibi", "elevenlabs", "openai", "gemini"];
+export const VOICE_ENGINES: VoiceEngine[] = ["auto", "qwen", "chatterbox", "habibi", "higgs", "elevenlabs", "openai", "gemini"];
 export const DIALECTS: Dialect[] = ["MSA", "ALG", "EGY", "IRQ", "MAR"];
 
 // ====================================================================== system
@@ -551,7 +551,8 @@ export const api = {
   media: (pid: string) => get<Media>(`${P(pid)}/media`),
   projectProviders: (pid: string) => get<ProviderRow[]>(`${P(pid)}/providers`),
 
-  render: (pid: string, body: { deliveries?: ("web" | "tv")[]; only?: string[] | null; qa?: boolean } = {}) =>
+  render: (pid: string, body: { deliveries?: ("web" | "tv")[]; only?: string[] | null; qa?: boolean;
+                                 quality?: "draft" | "standard" | "high" | "tv" | null } = {}) =>
     post<Job<RenderResult>>(`${P(pid)}/render`, { deliveries: ["web"], qa: true, ...body }),
   mix: (pid: string) => post<Job<RenderResult>>(`${P(pid)}/mix`),
   exportVideo: (pid: string, format: ExportFormat, at = 0) =>

@@ -58,6 +58,7 @@ export function RenderTab() {
   const plan = useData(`plan:${id}`, () => api.plan(id), version);
   const player = useRef<HTMLVideoElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [target, setTarget] = useState<"high" | "tv" | null>(null); // this render only; null = project setting
   const [now, setNow] = useState(0);
 
   const video = mainVideo(media);
@@ -83,13 +84,30 @@ export function RenderTab() {
         <Card className="flex flex-col items-center gap-4 bg-gradient-to-br from-brand-50 to-coral-50 p-6 text-center sm:p-8">
           <Button
             size="xl"
-            onClick={() => start("render", () => api.render(id, { deliveries: ["web"], qa: true }))}
+            onClick={() => start("render", () => api.render(id, { deliveries: ["web"], qa: true, quality: target }))}
             loading={busy === "render"}
             disabled={!!renderRunning || !workerOk}
             icon={<Sparkles className="size-6" />}
           >
             {video ? t("render.again") : t("render.cta")}
           </Button>
+          <div className="flex flex-wrap justify-center gap-2" role="radiogroup" aria-label={t("render.target")}>
+            {([null, "high", "tv"] as const).map((q) => (
+              <button
+                key={q ?? "project"}
+                type="button"
+                role="radio"
+                aria-checked={target === q}
+                onClick={() => setTarget(q)}
+                className={cx(
+                  "rounded-full border px-3 py-1 text-sm transition",
+                  target === q ? "border-brand-500 bg-brand-500 text-white" : "border-ink/15 bg-white/70 text-ink/80 hover:border-brand-300",
+                )}
+              >
+                {t(q === "high" ? "render.targetSocial" : q === "tv" ? "render.targetTv" : "render.targetProject")}
+              </button>
+            ))}
+          </div>
           {plan.data && <p className="text-sm text-muted">{t("render.hint", { t: roughDuration(plan.data.total_seconds, lang) })}</p>}
           <p className="max-w-xl text-sm text-ink/70">{t("job.renderExpect")}</p>
           {!workerOk && <Notice tone="amber">{t("health.workerDown")}</Notice>}

@@ -304,6 +304,8 @@ class RenderIn(BaseModel):
     deliveries: list[Literal["web", "tv"]] = ["web"]
     only: list[str] | None = None
     qa: bool = True
+    # this render only: high = AI shots in 720p (about 2x faster, social media), tv = 1080p; None = project.yaml
+    quality: Literal["draft", "standard", "high", "tv"] | None = None
 
 
 @app.post("/api/projects/{pid}/render", status_code=202)
@@ -370,7 +372,7 @@ def voice_redo(pid: str, body: ScenesIn) -> dict:
 
 
 class EngineIn(BaseModel):
-    engine: Literal["auto", "qwen", "chatterbox", "habibi", "elevenlabs", "openai", "gemini"]
+    engine: Literal["auto", "qwen", "chatterbox", "habibi", "higgs", "elevenlabs", "openai", "gemini"]
     voice_id: str | None = None
     model: str | None = None
     dialect: Literal["MSA", "ALG", "EGY", "IRQ", "MAR"] | None = None

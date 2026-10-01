@@ -225,7 +225,7 @@ The dates below are from the official docs, checked 2026-09-25.
 
 | Capability | Provider | Default model | Key(s) | Notes |
 |---|---|---|---|---|
-| image | `local` | **Qwen-Image-Edit-2511** (GGUF Q4 + Lightning 4-step) for frames with references; **Z-Image Turbo** or FLUX.2 klein 4B without | — | smart routing by frame, one engine loaded at a time; falls back to FLUX when a model isn't downloaded |
+| image | `local` | **Qwen-Image-2.1** (GGUF Q5, persistent worker in `vendor/qi21`, up to 10 references) for every frame when installed; otherwise **Qwen-Image-Edit-2511** (GGUF Q4 + Lightning 4-step) with references and **Z-Image Turbo** or FLUX.2 klein 4B without | — | smart routing by frame, one engine loaded at a time; falls back to FLUX when a model isn't downloaded |
 | image | `openai` | `gpt-image-2.5-flare` | `OPENAI_API_KEY` | `/images/edits` with up to 16 references, `input_fidelity: high` |
 | image | `gemini` | `gemini-3.1-flash-image` | `GEMINI_API_KEY` | Interactions API; up to 14 references |
 | image | `huggingface` | `black-forest-labs/FLUX.1-schnell` | `HF_TOKEN` | router `hf-inference` or `fal-ai`; no references |
@@ -234,10 +234,11 @@ The dates below are from the official docs, checked 2026-09-25.
 | video | `kling` | `kling-3.0` | `KLING_API_KEY` | first/last frame, native audio, 3–15 s |
 | video | `seedance` | `dreamina-seedance-2-5-260628` | `ARK_API_KEY` | BytePlus ModelArk; first/last frame, audio, 4–30 s |
 | voice | `qwen` · `chatterbox` · `habibi` | Qwen3-TTS · **Chatterbox Multilingual v3** · Habibi Specialized | — | 10 languages · 23 incl. Arabic (automatic diacritics) · Arabic dialects |
+| voice | `higgs` | **Higgs TTS 3** 4B (transformers port, bf16, `vendor/qi21`) | — | 100+ languages; clones the same reference voice as the other engines; non-commercial |
 | voice | `elevenlabs` | `eleven_multilingual_v2` | `ELEVENLABS_API_KEY` (+ voice id) | Arabic supported |
 | voice | `openai` | `gpt-4o-mini-tts` | `OPENAI_API_KEY` | style from `voice.description` |
 | voice | `gemini` | `gemini-3.8-flash-tts` | `GEMINI_API_KEY` | 30 voices; MSA and Egyptian Arabic |
-| music | `local` | ACE-Step 1.5 turbo (XL with `UGC_ACE_CONFIG=acestep-v15-xl-turbo`) | — | |
+| music | `local` | ACE-Step 1.5 turbo (XL with `UGC_ACE_CONFIG=acestep-v15-xl-turbo`) **+ Stable Audio 3 Medium** when installed | — | both engines write candidates; Meta Audiobox Aesthetics (enjoyment + production quality) picks the bed |
 | music | `elevenlabs` | `music_v2` | `ELEVENLABS_API_KEY` | `force_instrumental` |
 
 Not offered, on purpose:

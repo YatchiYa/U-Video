@@ -252,7 +252,7 @@ class Voice(Strict):
     tempo: float = Field(1.0, ge=0.8, le=1.2)
     # auto: Qwen3-TTS for its 10 languages, Chatterbox (MIT, 23 languages incl. Arabic) otherwise,
     # Habibi (Apache-2.0 checkpoints) when an Arabic `dialect` is set. Cloud: elevenlabs | openai | gemini.
-    engine: Literal["auto", "qwen", "chatterbox", "habibi", "elevenlabs", "openai", "gemini"] = "auto"
+    engine: Literal["auto", "qwen", "chatterbox", "habibi", "higgs", "elevenlabs", "openai", "gemini"] = "auto"
     model: str | None = None     # cloud TTS model (e.g. eleven_multilingual_v2); default per provider
     voice_id: str | None = None  # cloud voice (ElevenLabs voice id, OpenAI/Gemini voice name)
     dialect: Literal["MSA", "ALG", "EGY", "IRQ", "MAR"] | None = None  # Arabic dialect (Habibi)

@@ -180,10 +180,109 @@ class ZImageImage(ImageBackend):
         self.torch.cuda.empty_cache()
 
 
+class Qwen21Image(ImageBackend):
+    """Qwen-Image-2.1 (best open image model for generation and multi-reference editing, up to 10 references).
+    Needs newer diffusers/transformers than the main environment: runs as a persistent worker in vendor/qi21
+    (loaded once per keyframe batch). Research license: personal use."""
+
+    name = "local (Qwen-Image-2.1)"
+    supports_references = True
+    REPO = "Qwen/Qwen-Image-2.1"
+    GGUF_REPO = "unsloth/Qwen-Image-2.1-GGUF"
+    WORKER = Path(__file__).resolve().parents[1] / "workers" / "image_worker.py"
+
+    @classmethod
+    def python(cls) -> Path:
+        from ugc_studio.config import VENDOR_DIR
+
+        return VENDOR_DIR / "qi21" / ".venv" / "bin" / "python"
+
+    @classmethod
+    def _gguf(cls) -> str | None:
+        import os
+
+        custom = (os.environ.get("UGC_QWEN21_GGUF") or "").strip()
+        if custom:
+            return custom
+        from huggingface_hub import scan_cache_dir
+
+        quant = (os.environ.get("UGC_QWEN21_QUANT") or "Q5_K_M").lower()
+        try:
+            for repo in scan_cache_dir().repos:
+                if repo.repo_id == cls.GGUF_REPO:
+                    for rev in repo.revisions:
+                        for f in rev.files:
+                            if f.file_name.lower().endswith(f"{quant}.gguf"):
+                                return str(f.file_path)
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    @classmethod
+    def available(cls) -> bool:
+        return bool(cls.python().is_file() and cls._gguf() and _cached(cls.REPO, "text_encoder/config.json"))
+
+    def __init__(self, model: str | None = None, steps: int | None = None):
+        import os
+
+        gguf = model or self._gguf()
+        if not gguf or not self.python().is_file():
+            raise ProviderError("Qwen-Image-2.1 is not installed: `ugc setup` then `ugc models download --only qwen21`.")
+        self.steps = steps or int(os.environ.get("UGC_QWEN21_STEPS") or 24)
+        import tempfile
+
+        self.log = Path(tempfile.gettempdir()) / "ugc-qwen21-worker.log"
+        with self.log.open("w") as err:
+            self.proc = subprocess.Popen([str(self.python()), str(self.WORKER), gguf, self.REPO],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True, bufsize=1)
+        ready = self._read()
+        if not ready.get("ready"):
+            raise ProviderError(f"Qwen-Image-2.1 worker failed to start: {ready}")
+
+    def _read(self) -> dict:
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                code = self.proc.wait(timeout=30)
+                tail = self.log.read_text(errors="replace").strip().splitlines()[-3:]
+                raise ProviderError(f"Qwen-Image-2.1 worker stopped (exit code {code}): {' | '.join(tail)}")
+            line = line.strip()
+            if line.startswith("{"):
+                return json.loads(line)
+
+    def generate(self, prompt, width, height, seed, references=None, out_path=None):
+        from PIL import Image
+
+        out = Path(out_path) if out_path else Path(f"/tmp/qi21_{seed}.png")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.proc.stdin.write(json.dumps({"prompt": prompt, "width": width // 16 * 16, "height": height // 16 * 16,
+                                          "seed": seed, "references": [str(r) for r in references or []],
+                                          "out": str(out), "steps": self.steps}) + "\n")
+        self.proc.stdin.flush()
+        res = self._read()
+        if not res.get("ok"):
+            raise ProviderError(f"Qwen-Image-2.1: {res.get('error')}")
+        im = Image.open(out)
+        if im.size != (width, height):
+            im = im.resize((width, height), Image.LANCZOS)
+            im.save(out)
+        return im
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            try:
+                self.proc.stdin.write(json.dumps({"quit": True}) + "\n")
+                self.proc.stdin.flush()
+                self.proc.wait(timeout=60)
+            except Exception:  # noqa: BLE001
+                self.proc.kill()
+
+
 class LocalImage(ImageBackend):
     """Local keyframes, best engine per frame:
-      with references (a person/product to keep)  -> Qwen-Image-Edit-2511 when downloaded, else FLUX.2 klein
-      without references                          -> Z-Image Turbo when downloaded, else FLUX.2 klein
+      any frame                                   -> Qwen-Image-2.1 when installed (generation + editing)
+      with references (a person/product to keep)  -> else Qwen-Image-Edit-2511 when downloaded, else FLUX.2 klein
+      without references                          -> else Z-Image Turbo when downloaded, else FLUX.2 klein
     UGC_KEYFRAME_EDIT (qwen-edit | flux) and UGC_KEYFRAME_T2I (zimage | flux) force a choice. `model` = a FLUX.2
     klein checkpoint (UGC_IMAGE_MODEL). One engine is loaded at a time (they don't fit in RAM together)."""
 
@@ -193,8 +292,11 @@ class LocalImage(ImageBackend):
         import os
 
         self.flux_model, self.steps = model, steps
-        edit = os.environ.get("UGC_KEYFRAME_EDIT", "").strip() or ("qwen-edit" if QwenEditImage.available() else "flux")
-        t2i = os.environ.get("UGC_KEYFRAME_T2I", "").strip() or ("zimage" if ZImageImage.available() else "flux")
+        best = "qwen21" if Qwen21Image.available() else None  # one engine for every frame: no reloads
+        edit = (os.environ.get("UGC_KEYFRAME_EDIT", "").strip() or best
+                or ("qwen-edit" if QwenEditImage.available() else "flux"))
+        t2i = (os.environ.get("UGC_KEYFRAME_T2I", "").strip() or best
+               or ("zimage" if ZImageImage.available() else "flux"))
         self.route = {"refs": edit, "text": t2i}
         self.engine, self.g = None, None
         self.name = f"local ({edit} for references, {t2i} for text)"
@@ -203,7 +305,7 @@ class LocalImage(ImageBackend):
         if engine != self.engine:
             if self.g is not None:
                 self.g.close()
-            cls = {"qwen-edit": QwenEditImage, "zimage": ZImageImage}.get(engine)
+            cls = {"qwen21": Qwen21Image, "qwen-edit": QwenEditImage, "zimage": ZImageImage}.get(engine)
             self.g = cls() if cls else FluxImage(self.flux_model, self.steps)
             self.engine = engine
         return self.g
@@ -236,3 +338,41 @@ class AceMusic(MusicBackend):
         proc = subprocess.run([str(ACE_PYTHON), str(self.WORKER), str(jp)], capture_output=True, text=True, cwd=ROOT)
         if proc.returncode != 0:
             raise ProviderError(f"Music worker failed:\n{proc.stderr[-3000:]}")
+
+
+
+class StableAudioMusic(MusicBackend):
+    name = "local (Stable Audio 3 Medium)"
+    WORKER = Path(__file__).resolve().parents[1] / "workers" / "sa3_worker.py"
+
+    @classmethod
+    def available(cls) -> bool:
+        from ugc_studio.config import SA3_PYTHON, SA3_REPO, STABLE_AUDIO
+
+        return bool(STABLE_AUDIO and SA3_PYTHON.is_file() and _cached(SA3_REPO, "model.safetensors"))
+
+    def generate(self, caption, seconds, bpm, seed, candidates, out_dir, first: int = 0):
+        from ugc_studio.config import SA3_PYTHON
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+        jp = out_dir / "job_sa3.json"
+        jp.write_text(json.dumps({"caption": caption, "seconds": seconds, "bpm": bpm, "candidates": candidates,
+                                  "seed": seed, "out_dir": str(out_dir), "first": first}))
+        proc = subprocess.run([str(SA3_PYTHON), str(self.WORKER), str(jp)], capture_output=True, text=True, cwd=ROOT)
+        if proc.returncode != 0:
+            raise ProviderError(f"Stable Audio worker failed:\n{proc.stderr[-3000:]}")
+
+
+class LocalMusic(MusicBackend):
+    """ACE-Step candidates, plus Stable Audio 3 candidates when installed: on 4 briefs each engine won some
+    (Stable Audio: calm/news and pop; ACE-Step: trap), so both compete and music.score keeps the best."""
+
+    def __init__(self, model: str | None = None):
+        self.ace = AceMusic(model)
+        self.sa3 = StableAudioMusic() if StableAudioMusic.available() else None
+        self.name = self.ace.name + (" + Stable Audio 3" if self.sa3 else "")
+
+    def generate(self, caption, seconds, bpm, seed, candidates, out_dir):
+        self.ace.generate(caption, seconds, bpm, seed, candidates, out_dir)
+        if self.sa3:
+            self.sa3.generate(caption, seconds, bpm, seed, candidates, out_dir, first=len(list(out_dir.glob("cand*.wav"))))

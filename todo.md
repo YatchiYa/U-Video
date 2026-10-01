@@ -193,3 +193,18 @@ Avant de publier :
 un README avec une démo en GIF ou vidéo ;
 une vérification des licences des modèles : LTX-2.5 a sa propre licence communautaire à relire pour l'usage commercial ; Habibi (Apache) et Chatterbox (MIT) sont déjà clairs ;
 idéalement, les variables d'environnement pour choisir les modèles (point 4), pour que d'autres puissent l'utiliser avec leur matériel.
+
+
+-----------------
+
+GENERATE ACOMPLETE NEW VIDEO  SECOND, 
+RICH, ABOUT MY SOLUTION https://dz-menu.com/
+https://dz-menu.com/fr/landing
+https://dz-menu.com/fr/partners
+---
+
+---
+no face ! perfectly set, content, to attract clients directly, call to action, benefits, etc !!! 
+simulation perfect use like of a store, multiples , 
+a perfect professinal content, motion, use etc .. !!! 
+make it perfect !

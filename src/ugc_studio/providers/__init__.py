@@ -3,7 +3,7 @@
 Choice, highest priority first:
   1. project.yaml   providers: {image: openai, video: kling, music: elevenlabs, video_model: ...}
                     (video: local | veo | kling | seedance; image: local | openai | gemini | huggingface)
-                    voice.engine: elevenlabs | openai | gemini | qwen | chatterbox | habibi
+                    voice.engine: elevenlabs | openai | gemini | qwen | chatterbox | habibi | higgs
   2. environment    UGC_IMAGE_PROVIDER, UGC_VIDEO_PROVIDER, UGC_VOICE_PROVIDER, UGC_MUSIC_PROVIDER
                     (+ UGC_*_MODEL to pick the provider's model), usually in .env
   3. default        local open-source models (FLUX.2 klein, LTX-2.5, Qwen3-TTS/Chatterbox/Habibi, ACE-Step)
@@ -38,11 +38,11 @@ VOICE = {
     "gemini": "ugc_studio.providers.gemini:GeminiVoice",
 }
 MUSIC = {
-    "local": "ugc_studio.providers.local:AceMusic",
+    "local": "ugc_studio.providers.local:LocalMusic",
     "elevenlabs": "ugc_studio.providers.elevenlabs:ElevenLabsMusic",
 }
 REGISTRY = {"image": IMAGE, "video": VIDEO, "voice": VOICE, "music": MUSIC}
-LOCAL_VOICES = ("qwen", "chatterbox", "habibi")
+LOCAL_VOICES = ("qwen", "chatterbox", "habibi", "higgs")
 
 # API key each cloud provider needs (shown by `ugc providers`)
 KEYS = {
@@ -62,7 +62,8 @@ LICENSE_NOTES = {
     ("voice", "qwen"): "Qwen3-TTS: Apache-2.0",
     ("voice", "chatterbox"): "Chatterbox: MIT (outputs carry an inaudible Perth watermark)",
     ("voice", "habibi"): "Habibi-TTS: commercial use UNCERTAIN (fine-tuned from the CC-BY-NC F5-TTS base)",
-    ("music", "local"): "ACE-Step 1.5: MIT",
+    ("voice", "higgs"): "Higgs TTS 3: research and non-commercial (creator grant for social videos, with attribution)",
+    ("music", "local"): "ACE-Step 1.5: MIT; Stable Audio 3 (if installed): Stability AI Community License, free under $1M revenue",
 }
 
 

@@ -127,7 +127,8 @@ class RedisStore:
     def __init__(self, url: str):
         import redis
 
-        self.r = redis.Redis.from_url(url, decode_responses=True)
+        self.r = redis.Redis.from_url(url, decode_responses=True, socket_keepalive=True, health_check_interval=30,
+                                      retry_on_timeout=True)
 
     def save(self, job: dict) -> None:
         self.r.set(f"{self.P}job:{job['id']}", json.dumps(job))
@@ -168,7 +169,13 @@ class RedisStore:
         self.r.rpush(f"{self.P}queue:{queue}", jid)
 
     def pop(self, queue: str, timeout: float = 1.0) -> str | None:
-        item = self.r.blpop([f"{self.P}queue:{queue}"], timeout=max(1, int(timeout)))
+        import redis
+
+        try:
+            item = self.r.blpop([f"{self.P}queue:{queue}"], timeout=max(1, int(timeout)))
+        except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError):  # e.g. after the host slept
+            time.sleep(1)
+            return None  # the worker loop simply asks again on a fresh connection
         return item[1] if item else None
 
     def remove_from_queue(self, queue: str, jid: str) -> bool:
@@ -387,7 +394,7 @@ def execute(job: dict) -> Any:
     if kind == "render":
         from ugc_studio.engine import Studio
 
-        st = Studio(folder, progress=progress)
+        st = Studio(folder, progress=progress, quality=params.get("quality"))
         res = st.build(only=params.get("only"), deliveries=tuple(params.get("deliveries") or ("web",)))
         out = {"deliveries": {k: str(v) for k, v in res.deliveries.items()}, "total": res.timeline.total,
                "warnings": res.warnings, "seconds": round(res.seconds, 1)}

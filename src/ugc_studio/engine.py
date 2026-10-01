@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -21,6 +22,28 @@ from ugc_studio.media import color_match_lut, conform, extract_frame, probe, sam
 from ugc_studio.schema import Project
 from ugc_studio.state import State, ref
 from ugc_studio.styles import video_prompt
+
+
+@contextmanager
+def keep_awake(why: str):
+    """Block system sleep while generating: a laptop that suspends mid-shot leaves CUDA hung (a whole night lost on
+    2026-09-27). Uses systemd-inhibit when available (not inside Docker: keep the host awake yourself there)."""
+    import shutil
+    import subprocess
+
+    exe = shutil.which("systemd-inhibit")
+    proc = None
+    if exe:
+        try:
+            proc = subprocess.Popen([exe, "--what=sleep:idle", "--who=UGC Studio", f"--why={why}", "--mode=block",
+                                     "sleep", "infinity"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            proc = None
+    try:
+        yield
+    finally:
+        if proc:
+            proc.terminate()
 
 log = logging.getLogger(__name__)
 PROJECT_FILE = "project.yaml"
@@ -44,12 +67,16 @@ class BuildResult:
 
 
 class Studio:
-    def __init__(self, project_dir: str | Path, progress: Callable[[str, str], None] | None = None):
+    def __init__(self, project_dir: str | Path, progress: Callable[[str, str], None] | None = None,
+                 quality: str | None = None):
         self.dir = Path(project_dir).resolve()
         self.file = self.dir / PROJECT_FILE
         if not self.file.is_file():
             raise FileNotFoundError(f"{self.file} not found. Create a project with `ugc new`.")
         self.project = personas.apply(Project.load(self.file))
+        if quality:  # this render only (e.g. `high` = 720p AI shots for social media); project.yaml is unchanged
+            self.project = self.project.model_copy(update={"quality": Project.model_validate(
+                {**self.project.model_dump(), "quality": quality}).quality})
         from ugc_studio import assets
 
         # Every user file is validated + normalized (any image/video/audio format) before anything runs.
@@ -97,8 +124,12 @@ class Studio:
         p, st = self.project, self.state
         items: list[PlanItem] = []
         frames, would = images.build(p, st, self.dir / "frames", self.res, dry_run=True)
+        from ugc_studio import providers
+        from ugc_studio.providers.local import Qwen21Image, StableAudioMusic
+
+        big = Qwen21Image.available() and providers.choice(p, "image").provider == "local"  # measured on 12 GB
         for name in would:
-            items.append(PlanItem("frames", name, f"image {name}", 15 if p.quality != "tv" else 50))
+            items.append(PlanItem("frames", name, f"image {name}", (320 if p.quality == "tv" else 160) if big else (15 if p.quality != "tv" else 50)))
         shot_est = st.typical_seconds(f"shot:{p.quality}", RENDER_SECONDS_ESTIMATE.get(p.quality, 200))
         stale: set[str] = set()
         for i, s in enumerate(p.scenes):
@@ -126,7 +157,8 @@ class Studio:
             items.append(PlanItem("voice", "voice", f"{len(redo)} narration line(s): {', '.join(redo)}",
                                   60 + 10 * len(redo)))
         if p.music.mode == "generate" and not st.get("music"):
-            items.append(PlanItem("music", "music", "original music (2 candidates)", 150))
+            both = StableAudioMusic.available() and providers.choice(p, "music").provider == "local"
+            items.append(PlanItem("music", "music", f"original music ({4 if both else 2} candidates)", 240 if both else 150))
         items.append(PlanItem("edit", "edit", "screens, conform, graphics, mix, deliveries",
                               st.typical_seconds("overlay", 120) + 60))
         return items
@@ -134,6 +166,10 @@ class Studio:
     # ---------------------------------------------------------------- build
     def build(self, only: list[str] | None = None, deliveries: tuple[str, ...] = ("web",),
               offload: str | None = None) -> BuildResult:
+        with keep_awake(f"rendering {self.dir.name}"):
+            return self._build(only, deliveries, offload)
+
+    def _build(self, only: list[str] | None, deliveries: tuple[str, ...], offload: str | None) -> BuildResult:
         t0 = time.time()
         p, st, d = self.project, self.state, self.dir
         if self.ingest.errors:

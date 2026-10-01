@@ -4,7 +4,12 @@ end to end on CPU with synthetic media: no model is loaded and nothing is genera
 from __future__ import annotations
 
 import colorsys
+import os
 from pathlib import Path
+
+# the automatic engines stay the same whatever optional models this machine has downloaded (set before config loads)
+os.environ["UGC_AUTO_HIGGS"] = "0"
+os.environ["UGC_STABLE_AUDIO"] = "0"
 
 import pytest
 from PIL import Image, ImageDraw

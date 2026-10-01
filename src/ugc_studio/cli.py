@@ -151,6 +151,8 @@ def doctor() -> None:
     t.add_row("Voice (Qwen3-TTS env)", ok if config.TTS_PYTHON.is_file() else f"{bad} → `ugc setup`")
     t.add_row("Voice AR+13 (Chatterbox)", ok if config.CHATTERBOX_PYTHON.is_file() else f"{bad} → `ugc setup`")
     t.add_row("Voice dialects (Habibi)", ok if config.HABIBI_PYTHON.is_file() else f"{bad} → `ugc setup`")
+    t.add_row("Stable Audio 3 env", ok if config.SA3_PYTHON.is_file() else f"{bad} → `ugc setup` (optional)")
+    t.add_row("Qwen-Image-2.1 / Higgs env", ok if config.QI21_PYTHON.is_file() else f"{bad} → `ugc setup` (optional)")
     t.add_row("Music (ACE-Step env)", ok if config.ACE_PYTHON.is_file() else f"{bad} → `ugc setup`")
     t.add_row("Motion engine", ok if (config.MOTION_DIR / "node_modules" / "gsap").is_dir() else f"{bad} → `ugc setup`")
     try:
@@ -203,6 +205,33 @@ def setup() -> None:
                                          "https://github.com/ace-step/ACE-Step-1.5.git", str(config.ACE_DIR)],
                           config.VENDOR_DIR))
         steps.append(("music env", ["uv", "sync"], config.ACE_DIR))
+    if not config.SA3_PYTHON.is_file():  # Stable Audio 3 music + the Audiobox music judge
+        if not config.SA3_DIR.is_dir():
+            steps.append(("music 2 code", ["git", "clone", "-q", "https://github.com/Stability-AI/stable-audio-3",
+                                           str(config.SA3_DIR)], config.VENDOR_DIR))
+            steps.append(("music 2 version", ["git", "checkout", "-q", "779434a908193105335fd8d833418603625b2859"],
+                          config.SA3_DIR))
+        steps.append(("music 2 env", ["uv", "sync", "--python-preference", "only-managed"], config.SA3_DIR))
+        steps.append(("music 2 packages", ["uv", "pip", "install", "--python", ".venv/bin/python",
+                                           "audiobox_aesthetics", "requests",
+                                           "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/"
+                                           "v0.7.16/flash_attn-2.8.3%2Bcu126torch2.7-cp310-cp310-manylinux_2_24_x86_64."
+                                           "manylinux_2_28_x86_64.whl"], config.SA3_DIR))
+    qi21 = config.VENDOR_DIR / "qi21"
+    if not (qi21 / ".venv" / "bin" / "python").is_file():  # Qwen-Image-2.1 keyframes need diffusers main
+        qi21.mkdir(parents=True, exist_ok=True)
+        steps.append(("image env", ["uv", "venv", "-q", "--python-preference", "only-managed", "--python", "3.12",
+                                    ".venv"], qi21))
+        steps.append(("image torch", ["uv", "pip", "install", "--python", ".venv/bin/python", "torch==2.14.0",
+                                      "torchvision==0.29.0", "--index-url", "https://download.pytorch.org/whl/cu130"],
+                      qi21))
+        steps.append(("image packages", ["uv", "pip", "install", "--python", ".venv/bin/python", "transformers==5.17.0",
+                                         "accelerate", "gguf", "sentencepiece", "pillow", "soundfile", "diffusers @ git+https://"
+                                         "github.com/huggingface/diffusers@e0abab83b5df05de9e7abd788643c1a7c1e42e28"],
+                      qi21))
+        steps.append(("image audio", ["uv", "pip", "install", "--python", ".venv/bin/python", "--no-deps",
+                                      "torchaudio==2.11.0", "--index-url", "https://download.pytorch.org/whl/cu130"],
+                      qi21))  # Higgs voice: its last release, only the (plain torch) resampler is used
     browsers = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
     if not any(browsers.glob("chromium-*")):  # already in the Docker image
         steps.append(("browser", [str(Path(os.sys.executable).parent / "playwright"), "install", "chromium"],
@@ -224,13 +253,16 @@ MODEL_SETS = {
     "arabic": "Qwen3-ASR-1.7B: second opinion for Arabic speech checks (~4 GB)",
     "qwen-edit": "Qwen-Image-Edit-2511 GGUF Q4 + Lightning LoRA: identity keyframes (~31 GB)",
     "zimage": "Z-Image Turbo: photoreal text-to-image keyframes (~33 GB, optional)",
+    "qwen21": "Qwen-Image-2.1 GGUF + Qwen3-VL-8B encoder: best keyframes, research license (~24 GB, needs `ugc setup`)",
+    "sa3": "Stable Audio 3 Medium music (~10 GB; accept its terms on Hugging Face first, needs `ugc setup`)",
+    "higgs": "Higgs TTS 3 voice + audio codec: most natural narration, non-commercial (~10 GB, needs `ugc setup`)",
 }
 DEFAULT_SETS = ("ltx", "flux", "whisper", "director", "arabic", "qwen-edit")
 
 
 @models_app.command("download")
 def models_download(only: Annotated[Optional[str], typer.Option(
-        help="Comma list of: " + ", ".join(MODEL_SETS) + " (default: all but zimage)")] = None) -> None:
+        help="Comma list of: " + ", ".join(MODEL_SETS) + " (default: all but the optional zimage, qwen21, sa3, higgs)")] = None) -> None:
     """Download model weights (LTX-2.5 needs HF_TOKEN in .env and the license accepted). Voice and music models
     download on first use; ACE-Step XL music: set UGC_ACE_CONFIG=acestep-v15-xl-turbo."""
     from huggingface_hub import hf_hub_download, snapshot_download
@@ -249,8 +281,24 @@ def models_download(only: Annotated[Optional[str], typer.Option(
         elif s == "ltx":
             for rel in config.LTX_FILES.values():
                 hf_hub_download(config.LTX_REPO, rel, local_dir=config.LTX_DIR)
-        elif s == "director":
-            snapshot_download(config.DIRECTOR_LLM)
+        elif s == "director":  # download, quantize to NF4 once, keep only the 7.7 GB result
+            import shutil as _sh
+
+            import torch
+            from huggingface_hub import scan_cache_dir
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+            if not (config.DIRECTOR_NF4_DIR / "config.json").is_file():
+                q = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                                       bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+                m = AutoModelForCausalLM.from_pretrained(config.DIRECTOR_REPO, dtype=torch.bfloat16,
+                                                         device_map="cuda:0", quantization_config=q)
+                m.save_pretrained(config.DIRECTOR_NF4_DIR)
+                AutoTokenizer.from_pretrained(config.DIRECTOR_REPO).save_pretrained(config.DIRECTOR_NF4_DIR)
+                del m
+                for repo in scan_cache_dir().repos:  # the 19 GB bf16 download is no longer needed
+                    if repo.repo_id == config.DIRECTOR_REPO:
+                        _sh.rmtree(repo.repo_path, ignore_errors=True)
         elif s == "arabic":
             snapshot_download(config.ARABIC_ASR)
         elif s == "qwen-edit":
@@ -264,6 +312,20 @@ def models_download(only: Annotated[Optional[str], typer.Option(
             from ugc_studio.providers.local import ZImageImage
 
             snapshot_download(ZImageImage.REPO)
+        elif s == "qwen21":
+            import os as _os
+
+            from ugc_studio.providers.local import Qwen21Image as Q21
+
+            quant = (_os.environ.get("UGC_QWEN21_QUANT") or "Q5_K_M")
+            snapshot_download(Q21.GGUF_REPO, allow_patterns=[f"*{quant}*.gguf"])
+            snapshot_download(Q21.REPO, allow_patterns=["model_index.json", "scheduler/*", "processor/*", "tokenizer/*",
+                                                        "text_encoder/*", "vae/*", "transformer/config.json"])
+        elif s == "sa3":
+            snapshot_download(config.SA3_REPO)
+        elif s == "higgs":
+            snapshot_download(config.HIGGS_REPO)
+            snapshot_download("bosonai/higgs-audio-v2-tokenizer")
     console.print("[green]Done.[/] Run [bold]ugc providers[/] to see which engines are used.")
 
 
@@ -362,10 +424,11 @@ def site(url: str, out: Annotated[Path, typer.Option(help="Where to save screens
 
 # ====================================================================== produce
 @app.command(rich_help_panel="Produce")
-def plan(project: ProjectArg) -> None:
+def plan(project: ProjectArg, quality: Annotated[Optional[str], typer.Option(
+        help="Estimate for this quality instead of project.yaml's (high = 720p AI shots, tv = 1080p)")] = None) -> None:
     """Show the storyboard and exactly what a render would generate (and how long it should take)."""
 
-    st = _studio(project)
+    st = _studio(project, quality=quality)
     _show_project(st.project)
     for e in st.ingest.errors:
         console.print(f"[red]✗ {e}")
@@ -386,6 +449,9 @@ def render(
     project: ProjectArg,
     only: Annotated[Optional[str], typer.Option(help="Only allow these scenes to (re)render, e.g. s01,s03")] = None,
     deliver: Annotated[str, typer.Option(help="Outputs: web, tv (comma separated)")] = "web",
+    quality: Annotated[Optional[str], typer.Option(help="For this render only: high = AI shots in 720p (about 2x "
+                                                        "faster, fine for social media) · tv = 1080p · draft, standard "
+                                                        "(default: project.yaml)")] = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation")] = False,
     offload: Annotated[Optional[str], typer.Option(help="LTX weights: cpu (12 GB GPUs) or none; default UGC_LTX_OFFLOAD")] = None,
     qa: Annotated[bool, typer.Option(help="Run the quality check at the end")] = True,
@@ -397,7 +463,7 @@ def render(
     def progress(stage: str, msg: str) -> None:
         console.print(f"  {stage_icon.get(stage, '•')} [cyan]{stage:<7}[/] {msg}")
 
-    st = _studio(project, progress=progress)
+    st = _studio(project, progress=progress, quality=quality)
     items = st.plan()
     est = sum(i.seconds for i in items)
     gpu = [i for i in items if i.stage in ("frames", "shots", "fixes", "voice", "music")]
@@ -728,7 +794,7 @@ def voice_redo(project: ProjectArg, scenes: Annotated[list[str], typer.Argument(
 
 @voice_app.command("engine")
 def voice_engine(project: ProjectArg,
-                 engine: Annotated[str, typer.Argument(help="auto, qwen, chatterbox, habibi, elevenlabs, openai, gemini")],
+                 engine: Annotated[str, typer.Argument(help="auto, qwen, chatterbox, habibi, higgs, elevenlabs, openai, gemini")],
                  voice_id: Annotated[Optional[str], typer.Option(help="Cloud voice id/name")] = None,
                  model: Annotated[Optional[str], typer.Option(help="Cloud TTS model")] = None,
                  dialect: Annotated[Optional[str], typer.Option(help="Arabic dialect for habibi: MSA ALG EGY IRQ MAR")] = None,

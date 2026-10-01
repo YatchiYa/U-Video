@@ -86,7 +86,11 @@ class Director:
         self.torch = torch
         self.tok = AutoTokenizer.from_pretrained(model_id)
         kw = {}
-        if four_bit:
+        from pathlib import Path
+
+        cfg = Path(model_id) / "config.json"
+        prequantized = cfg.is_file() and "quantization_config" in cfg.read_text()
+        if four_bit and not prequantized:
             from transformers import BitsAndBytesConfig
 
             kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",

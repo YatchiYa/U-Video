@@ -65,7 +65,10 @@ LTX_OFFLOAD = env("UGC_LTX_OFFLOAD", "cpu")                  # cpu | none
 FLUX_DIR = Path(env("UGC_FLUX_DIR", str(MODELS_DIR / "flux2-klein-4b")))
 FLUX_REPO = env("UGC_FLUX_REPO", "black-forest-labs/FLUX.2-klein-4B")
 FLUX_STEPS = int(env("UGC_FLUX_STEPS", "4"))
-DIRECTOR_LLM = env("UGC_DIRECTOR_LLM", "Qwen/Qwen3.5-9B")          # script writer (Apache-2.0)
+DIRECTOR_REPO = "Qwen/Qwen3.5-9B"                                   # script writer (Apache-2.0)
+DIRECTOR_NF4_DIR = MODELS_DIR / "qwen3.5-9b-nf4"                    # saved pre-quantized: 7.7 GB instead of 19 GB
+DIRECTOR_LLM = env("UGC_DIRECTOR_LLM", str(DIRECTOR_NF4_DIR) if (DIRECTOR_NF4_DIR / "config.json").is_file()
+                   else DIRECTOR_REPO)
 DIRECTOR_4BIT = env("UGC_DIRECTOR_4BIT", "1") == "1"                # NF4: a 9B model in ~6 GB of VRAM
 ASR_MODEL = env("UGC_ASR_MODEL", "openai/whisper-large-v3-turbo")
 # Arabic speech checks: Qwen3-ASR (Apache-2.0, far better than Whisper on Arabic) as a second opinion next to
@@ -80,8 +83,17 @@ TTS_CLONE_MODEL = env("UGC_TTS_CLONE_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
 CHATTERBOX_PYTHON = VENDOR_DIR / "chatterbox" / ".venv" / "bin" / "python"
 CHATTERBOX_T3 = env("UGC_CHATTERBOX_T3", "v3")  # Chatterbox Multilingual text-to-token model: v3 | v2
 HABIBI_PYTHON = VENDOR_DIR / "habibi" / ".venv" / "bin" / "python"
+# Newer-library environment (diffusers main, transformers 5.17): Qwen-Image-2.1 keyframes and the Higgs TTS 3 voice
+QI21_PYTHON = VENDOR_DIR / "qi21" / ".venv" / "bin" / "python"
+HIGGS_REPO = "multimodalart/higgs-audio-v3-tts-4b-transformers"  # transformers port of bosonai/higgs-tts-3-4b
 ACE_DIR = Path(env("UGC_ACE_DIR", str(VENDOR_DIR / "ACE-Step-1.5")))
 ACE_PYTHON = ACE_DIR / ".venv" / "bin" / "python"
+# Stable Audio 3 Medium (gated: accept the terms on Hugging Face). Once installed, every music bed gets candidates from
+# both ACE-Step and Stable Audio, and the best one (Meta Audiobox Aesthetics) is kept. UGC_STABLE_AUDIO=0 turns it off.
+SA3_DIR = Path(env("UGC_SA3_DIR", str(VENDOR_DIR / "stable-audio-3")))
+SA3_PYTHON = SA3_DIR / ".venv" / "bin" / "python"
+SA3_REPO = "stabilityai/stable-audio-3-medium"
+STABLE_AUDIO = env("UGC_STABLE_AUDIO", "1") not in ("0", "false", "no")
 ACE_CONFIG = env("UGC_ACE_CONFIG", "acestep-v15-turbo")  # acestep-v15-xl-turbo = XL (better audio, ~20 GB download)
 
 # LTX-2.5 distilled: frames must be 8k+1; 121 frames is the trained maximum per generation.

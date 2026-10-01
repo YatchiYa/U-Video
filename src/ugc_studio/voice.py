@@ -12,8 +12,8 @@ import numpy as np
 import soundfile as sf
 
 from ugc_studio import asr, phonetics, quality
-from ugc_studio.config import (CHATTERBOX_PYTHON, CHATTERBOX_T3, HABIBI_PYTHON, ROOT, TTS_CLONE_MODEL, TTS_DESIGN_MODEL,
-                               TTS_PYTHON)
+from ugc_studio.config import (CHATTERBOX_PYTHON, CHATTERBOX_T3, HABIBI_PYTHON, HIGGS_REPO, QI21_PYTHON, ROOT, TTS_CLONE_MODEL,
+                               TTS_DESIGN_MODEL, TTS_PYTHON)
 from ugc_studio.schema import Project
 from ugc_studio.state import State, ref
 from ugc_studio.timeline import VoiceLine
@@ -50,7 +50,8 @@ PASS = 0.9
 def _run_worker(job: dict, workdir: Path, engine: str = "qwen") -> None:
     python, worker = {"qwen": (TTS_PYTHON, WORKER),
                       "chatterbox": (CHATTERBOX_PYTHON, WORKERS / "chatterbox_worker.py"),
-                      "habibi": (HABIBI_PYTHON, WORKERS / "habibi_worker.py")}[engine]
+                      "habibi": (HABIBI_PYTHON, WORKERS / "habibi_worker.py"),
+                      "higgs": (QI21_PYTHON, WORKERS / "higgs_worker.py")}[engine]
     if not python.is_file():
         raise FileNotFoundError(f"{engine} voice environment missing ({python}). Run `ugc setup`.")
     workdir.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,17 @@ def _run_worker(job: dict, workdir: Path, engine: str = "qwen") -> None:
     proc = subprocess.run([str(python), str(worker), str(jp)], capture_output=True, text=True, cwd=ROOT)
     if proc.returncode != 0:
         raise RuntimeError(f"{engine} voice worker failed:\n{proc.stderr[-3000:]}")
+
+
+def higgs_available() -> bool:
+    """Higgs TTS 3 is installed (`ugc setup` + `ugc models download --only higgs`) and allowed as an automatic choice
+    (UGC_AUTO_HIGGS=0 keeps the commercial-safe engines)."""
+    import os
+
+    from ugc_studio.providers.local import _cached
+
+    return bool(os.environ.get("UGC_AUTO_HIGGS", "1").strip() not in ("0", "false", "no") and QI21_PYTHON.is_file()
+                and _cached(HIGGS_REPO, "config.json") and _cached("bosonai/higgs-audio-v2-tokenizer", "config.json"))
 
 
 def pick_engine(project: Project) -> str:
@@ -76,8 +88,12 @@ def pick_engine(project: Project) -> str:
         return "habibi"
     if lang in TTS_LANGUAGES:
         return "qwen"
+    if lang == "arabic" and higgs_available():  # A/B on 5 ad lines: same accuracy, better quality (3.95 vs 3.83)
+        return "higgs"
     if lang in CHATTERBOX_LANGS:
         return "chatterbox"
+    if higgs_available():  # 100+ languages
+        return "higgs"
     raise ValueError(f"No local voice for {project.language}. Supported: {sorted(TTS_LANGUAGES | set(CHATTERBOX_LANGS))}"
                      " (Arabic dialects via voice.dialect). Or record it yourself: voice.file: your_voiceover.mp3")
 
@@ -327,7 +343,7 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
         retries = project.voice.retries or (3 if engine == "qwen" else 5)
     need = max(PASS, project.voice.min_accuracy)
     cloud = None
-    if engine not in ("qwen", "chatterbox", "habibi"):  # cloud TTS: its own voices, no reference recording
+    if engine not in ("qwen", "chatterbox", "habibi", "higgs"):  # cloud TTS: its own voices, no reference recording
         from ugc_studio import providers
 
         cloud = providers.create(project, "voice")
@@ -336,6 +352,16 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
         ref_audio, ref_text = reference_voice(project, state, workdir)
     elif engine == "chatterbox":  # its own MIT voice, or a clone of voice.reference_audio
         ref_audio, ref_text = (Path(project.voice.reference_audio) if project.voice.reference_audio else None), ""
+    elif engine == "higgs":  # clones the same reference as the other engines, so a switch keeps the voice
+        log.warning("Higgs TTS 3: research and non-commercial license (personal use, or its creator grant with "
+                    "attribution). For client work, use qwen/chatterbox or a cloud voice (docs/LICENSES.md).")
+        lang = project.language.lower()
+        if project.voice.reference_audio or lang in TTS_LANGUAGES:
+            ref_audio, ref_text = reference_voice(project, state, workdir)
+        elif lang == "arabic":
+            ref_audio, ref_text = _habibi_reference(project, state, workdir)
+        else:
+            ref_audio, ref_text = None, ""
     else:  # habibi needs a reference: yours, or an Arabic reference made with Chatterbox (rights-clean)
         log.warning("Habibi-TTS: commercial use is uncertain (its checkpoints are fine-tuned from the CC-BY-NC "
                     "F5-TTS base). For client work, prefer voice.engine: chatterbox or a cloud voice (docs/LICENSES.md).")
@@ -343,7 +369,8 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
     from ugc_studio.state import file_hash
 
     worker_file = {"qwen": WORKER, "chatterbox": WORKERS / "chatterbox_worker.py",
-                   "habibi": WORKERS / "habibi_worker.py"}.get(engine, Path(__file__).parent / "providers" / f"{engine}.py")
+                   "habibi": WORKERS / "habibi_worker.py",
+                   "higgs": WORKERS / "higgs_worker.py"}.get(engine, Path(__file__).parent / "providers" / f"{engine}.py")
     ref_in = {"ref": ref(ref_audio), "ref_text": ref_text, "language": project.language.lower(), "engine": engine,
               **({"t3": CHATTERBOX_T3} if engine == "chatterbox" and CHATTERBOX_T3 != "v2" else {}),
               "dialect": project.voice.dialect, "worker": file_hash(worker_file)[:12], "post": 2,
@@ -385,6 +412,8 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
         cfg = [0.5, 0.35, 0.65, 0.45, 0.55][attempt % 5]
         batch = [{"id": sid if k == 0 else f"{sid}.take{k}", "text": lines[sid], "seed": seed_of[sid] + 1009 * k,
                   "cfg": cfg} for sid in todo for k in range(n_cand)]
+        if attempt and cloud is None:  # the speech checkers (Whisper + Qwen3-ASR, ~9 GB) would starve the voice worker
+            asr.unload()
         if cloud is not None:
             cloud.synthesize(batch, workdir, project.language, project.voice)
         elif engine == "qwen":
@@ -394,6 +423,9 @@ def build(project: Project, state: State, workdir: Path, retries: int | None = N
             _run_worker({"language_id": CHATTERBOX_LANGS[project.language.lower()],
                          "ref_audio": str(ref_audio) if ref_audio else None, "exaggeration": 0.5, "cfg": 0.5,
                          "t3_model": CHATTERBOX_T3, "out_dir": str(workdir), "lines": batch}, workdir, "chatterbox")
+        elif engine == "higgs":  # sampling temperature varies with the attempt like the other engines' guidance
+            _run_worker({"ref_audio": str(ref_audio) if ref_audio else None, "ref_text": ref_text, "out_dir": str(workdir),
+                         "lines": [{**b, "temperature": round(0.6 + 0.4 * b["cfg"], 2)} for b in batch]}, workdir, "higgs")
         else:
             _run_worker({"dialect": project.voice.dialect, "ref_audio": str(ref_audio), "ref_text": ref_text,
                          "out_dir": str(workdir), "lines": batch}, workdir, "habibi")
